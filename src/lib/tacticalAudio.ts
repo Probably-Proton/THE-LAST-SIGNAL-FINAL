@@ -395,13 +395,13 @@ class TacticalAudioController {
         break;
 
       case 'map':
-        // Quiet radio hiss and transmission ambience, carrier drift
+        // Quiet radio static and atmospheric surveillance room tone; zero high-frequency whistling
         targetWind = 0.10;
-        targetStatic = 0.32;
+        targetStatic = 0.12;
         targetRain = 0.0;
-        targetRoomTone = 0.10;
-        targetCarrier = 0.22;
-        targetSubDrone = 0.0;
+        targetRoomTone = 0.15;
+        targetCarrier = 0.0;
+        targetSubDrone = 0.06;
         break;
 
       case 'document_viewer':
@@ -416,10 +416,10 @@ class TacticalAudioController {
 
       case 'audio_investigation':
         // Dip all ambient audio so puzzle cassette can be analyzed with forensic clarity
-        targetWind = 0.01;
+        targetWind = 0.0;
         targetStatic = 0.0;
         targetRain = 0.0;
-        targetRoomTone = 0.02;
+        targetRoomTone = 0.0;
         targetCarrier = 0.0;
         targetSubDrone = 0.0;
         break;
@@ -437,10 +437,10 @@ class TacticalAudioController {
       case 'final_investigation':
         // Deeper, restrained atmospheric profile with tension sub-drone
         targetWind = 0.40;
-        targetStatic = 0.10;
+        targetStatic = 0.08;
         targetRain = this.rainMuted ? 0.0 : 0.12;
         targetRoomTone = 0.20;
-        targetCarrier = 0.08;
+        targetCarrier = 0.0;
         targetSubDrone = 0.45;
         break;
 

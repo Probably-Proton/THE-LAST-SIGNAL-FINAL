@@ -253,6 +253,8 @@ export function saveUserProgress(progress: UserProgress): void {
   }
 }
 
+import { isRegistrationOpen, REGISTRATION_OPEN_IST } from './stageConfig';
+
 /**
  * Register a new prototype account
  */
@@ -263,6 +265,14 @@ export async function registerPrototypeUser(params: {
   callSign: string;
   passwordPlain: string;
 }): Promise<{ success: boolean; error?: string; user?: PrototypeUser }> {
+  // Enforce registration window opening timestamp (IST)
+  if (!isRegistrationOpen()) {
+    return {
+      success: false,
+      error: `Registration is not open yet. Student intake begins on ${REGISTRATION_OPEN_IST}.`,
+    };
+  }
+
   const { fullName, studentClass, admissionNumber, callSign, passwordPlain } = params;
 
   if (!fullName.trim() || !studentClass.trim() || !admissionNumber.trim() || !callSign.trim() || !passwordPlain) {

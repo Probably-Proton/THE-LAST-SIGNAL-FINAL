@@ -54,6 +54,7 @@ import {
   formatCountdown,
   formatToIST,
   getRemainingTime,
+  getStageDisplayInfo,
 } from '@/src/lib/stageConfig';
 
 import { tacticalAudio } from '@/src/lib/tacticalAudio';
@@ -82,14 +83,14 @@ export function getInvestigatorDirective(progress: UserProgress): StageDirective
   if (progress.stagesCompleted >= 7) {
     return {
       stageNumber: 7,
-      stageTitle: 'The Final Dispatch',
-      stageSubtitle: 'Station incident & case closure',
+      stageTitle: "Ellen Vale's Journal and the Final Review",
+      stageSubtitle: 'Research journal, 16mm reel & station incident',
       objectiveTitle: 'Case TLS-0017 Concluded',
       objectiveDescription:
-        'All seven transmission signals have been intercepted, authenticated, and catalogued. The historical records alteration across 1974 and the present day has been unraveled.',
+        'All seven transmission signals have been intercepted, authenticated, and catalogued. The historical records alteration across 1971 and the present day has been unraveled.',
       nextStepText:
         'Review your declassified case audit, view merit scores across all stages, and print your official Case Investigator Certificate.',
-      targetEvidenceId: 'EV-0701',
+      targetEvidenceId: 'EV-0702',
       targetRoute: '/debrief',
       buttonLabel: 'REVIEW CASE DEBRIEF & CERTIFICATE',
       badgeText: 'CASE SOLVED & CLEARED',
@@ -99,40 +100,57 @@ export function getInvestigatorDirective(progress: UserProgress): StageDirective
   // Stage 7 / System Freeze Active
   if (
     progress.systemFreezeTriggered ||
-    progress.stagesCompleted >= 6 ||
     progress.stage7Step === 'article_read' ||
     progress.stage7Step === 'ending_video_played'
   ) {
     return {
       stageNumber: 7,
-      stageTitle: 'The Final Dispatch',
-      stageSubtitle: 'Station incident & case closure',
+      stageTitle: "Ellen Vale's Journal and the Final Review",
+      stageSubtitle: 'Research journal, 16mm reel & station incident',
       objectiveTitle: 'Directorate Lockdown Protocol // Stage 07',
       objectiveDescription:
-        'Transmissions have been severed by the Office of the Director following the 16mm reel evaluation. Emergency debrief clearance is required to review Chronicle Final Edition EV-0701.',
+        'Transmissions have been severed by the Office of the Director following the 16mm reel evaluation. Emergency debrief clearance is required to review Chronicle Final Edition EV-0702.',
       nextStepText:
         'Access Debrief Clearance to examine the final newspaper edition, acknowledge station incident findings, and complete case debriefing.',
-      targetEvidenceId: 'EV-0701',
+      targetEvidenceId: 'EV-0702',
       targetRoute: '/debrief',
       buttonLabel: 'PROCEED TO STAGE 07 DEBRIEF',
       badgeText: 'DIRECTORATE OVERRIDE ACTIVE',
     };
   }
 
-  // Stage 6
+  // Stage 7 Active (Ellen Vale Journal)
+  if (progress.activeStage === 7 || progress.stagesCompleted >= 6) {
+    return {
+      stageNumber: 7,
+      stageTitle: "Ellen Vale's Journal and the Final Review",
+      stageSubtitle: 'Research journal, 16mm reel & station incident',
+      objectiveTitle: "Examine Research Journal EV-0701 & 16mm Reel",
+      objectiveDescription:
+        "Historical researcher Ellen Vale's hardbound journal details cipher analysis from October 1971 and an attached 16mm film reel anticipating investigator responses.",
+      nextStepText:
+        'Open Item EV-0701, examine the handwritten entries, and evaluate the embedded FINAL_REVIEW.mp4 attachment to advance.',
+      targetEvidenceId: 'EV-0701',
+      targetRoute: '/evidence/EV-0701',
+      buttonLabel: 'INSPECT ELLEN VALE JOURNAL (EV-0701)',
+      badgeText: 'STAGE 07 ACTIVE',
+    };
+  }
+
+  // Stage 6 Active (The Record That Remembered Tomorrow)
   if (progress.activeStage === 6 || progress.stagesCompleted >= 5) {
     return {
       stageNumber: 6,
-      stageTitle: 'The Vale Notebook',
-      stageSubtitle: 'Research journal & 16mm reel',
-      objectiveTitle: "Analyze Research Journal EV-0601 & 16mm Reel",
+      stageTitle: 'The Record That Remembered Tomorrow',
+      stageSubtitle: 'Incident Report 06-B & Archival Revision Paradox',
+      objectiveTitle: 'Investigate Incident Report 06-B & The Record That Remembered Tomorrow',
       objectiveDescription:
-        "Historical researcher Ellen Vale's hardbound journal details cipher analysis, margin annotations, and an attached 16mm film reel anticipating investigator responses.",
+        'Following Daniel Mercer\'s death, an unidentified source was found dead in a locked room. Compare conflicting archival records, examine the revision timestamp paradox, and deduce the archive access key.',
       nextStepText:
-        'Open Item EV-0601, examine the handwritten entries, and evaluate the embedded FINAL_REVIEW.mp4 attachment to advance.',
+        'Inspect Item EV-0601, read Document A and the torn note initialed E.V., and decrypt ARCHIVE_ACCESS.txt to unlock Stage 07.',
       targetEvidenceId: 'EV-0601',
       targetRoute: '/evidence/EV-0601',
-      buttonLabel: 'INSPECT ELLEN VALE JOURNAL (EV-0601)',
+      buttonLabel: 'INSPECT INCIDENT REPORT 06-B (EV-0601)',
       badgeText: 'STAGE 06 ACTIVE',
     };
   }
@@ -264,15 +282,15 @@ export function getInvestigatorDirective(progress: UserProgress): StageDirective
     stageNumber: 1,
     stageTitle: 'The Archive',
     stageSubtitle: "The archivist's letter & docket registry",
-    objectiveTitle: "Decipher Archivist's Memorandum on EV-0103",
+    objectiveTitle: "First Directive: Review Declassified Case Files & Decipher EV-0103",
     objectiveDescription:
-      'Historical records from 1974 have reopened. Item EV-0103 carries an affixed six-line memorandum note. Vertical margins (acrostic & telestich) contain the archival call-sign and decryption key.',
+      "Historical records from 1974 have reopened. First Directive orientation requires examining the five declassified police overview dossiers (SFPD, Solano, Napa) and analyzing Archivist's memorandum note EV-0103.",
     nextStepText:
-      'Examine Item EV-0103, read the initial letters (zkcase) and terminal characters (case17) of the 6 lines, and authenticate the Vault Teletype Terminal.',
+      'Inspect the 5 Declassified Case Dossiers (Docs 01–05), examine Item EV-0103 (acrostic & telestich margins), and authenticate the Vault Teletype Terminal.',
     targetEvidenceId: 'EV-0103',
     targetRoute: '/evidence/EV-0103',
     buttonLabel: 'CONTINUE INVESTIGATION (INSPECT EV-0103)',
-    badgeText: 'STAGE 01 ACTIVE',
+    badgeText: 'FIRST DIRECTIVE ACTIVE',
   };
 }
 
@@ -348,7 +366,21 @@ export function InvestigationDashboard({
       </div>
 
       {/* Quick Navigation Hub Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 font-mono text-xs">
+        <button
+          onClick={() => {
+            tacticalAudio.playDocOpen();
+            navigate('/first-directive');
+          }}
+          className="p-3 bg-[#111a14] border border-[#284230] hover:border-[#8deb9e] transition-colors flex items-center gap-3 text-left group"
+        >
+          <FolderOpen size={16} className="text-[#8deb9e] shrink-0 group-hover:scale-110 transition-transform" />
+          <div>
+            <span className="block text-[10px] text-muted-foreground uppercase">First Directive</span>
+            <span className="text-[#8deb9e] font-medium">5 Case Dossiers</span>
+          </div>
+        </button>
+
         <button
           onClick={() => navigate('/evidence')}
           className="p-3 bg-[#131413] border border-border hover:border-crimson/50 transition-colors flex items-center gap-3 text-left group"
@@ -384,7 +416,7 @@ export function InvestigationDashboard({
 
         <button
           onClick={() => navigate('/messages')}
-          className="p-3 bg-[#131413] border border-border hover:border-crimson/50 transition-colors flex items-center gap-3 text-left group"
+          className="p-3 bg-[#131413] border border-border hover:border-crimson/50 transition-colors flex items-center gap-3 text-left group col-span-2 sm:col-span-1"
         >
           <Radio size={16} className="text-red-400 shrink-0 group-hover:scale-110 transition-transform" />
           <div>
@@ -395,12 +427,7 @@ export function InvestigationDashboard({
       </div>
 
       {/* TACTICAL DIRECTIVE HERO CARD (Next Available Action & Current Stage) */}
-      <div className="panel border-2 border-crimson/80 bg-[#140e0e] shadow-[0_0_30px_rgba(158,27,27,0.18)] p-6 md:p-8 relative overflow-hidden">
-        {/* Subtle background forensic watermark */}
-        <div className="absolute right-4 top-4 font-mono text-[100px] text-crimson/[0.04] font-bold select-none pointer-events-none leading-none">
-          0{directive.stageNumber}
-        </div>
-
+      <div className="panel border-2 border-crimson/80 bg-[#140e0e] shadow-[0_0_30px_rgba(158,27,27,0.18)] p-6 md:p-8 relative">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3d1919] pb-4 mb-6">
           <div className="flex items-center gap-2">
             <span className="size-2.5 rounded-full bg-crimson animate-ping" />
@@ -415,16 +442,36 @@ export function InvestigationDashboard({
 
         <div className="grid gap-8 lg:grid-cols-12">
           {/* Main Action & Directive Body (8 cols) */}
-          <div className="lg:col-span-8 space-y-4">
-            <div>
-              <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground mb-1">
-                <span>STAGE 0{directive.stageNumber} OF 07</span>
-                <span>·</span>
-                <span>{directive.stageSubtitle}</span>
+          <div className="lg:col-span-8 space-y-5">
+            {/* Structured Stage Number & Objective Headline (Normal Layout Flow — Never Overlaps) */}
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-5">
+              {/* Prominent Stage Index Plaque */}
+              <div
+                className="shrink-0 flex sm:flex-col items-center justify-center gap-2 sm:gap-0.5 border-2 border-crimson/60 bg-[#1e0e0e] px-3.5 py-2 sm:px-4 sm:py-3 shadow-[0_0_15px_rgba(158,27,27,0.25)] self-start"
+                aria-label={`Active Investigation Stage 0${directive.stageNumber}`}
+              >
+                <span className="font-mono text-[9px] uppercase tracking-[0.24em] text-crimson font-bold block">
+                  STAGE
+                </span>
+                <span className="font-mono text-3xl sm:text-4xl lg:text-5xl font-bold text-[#ebe6dc] leading-none tracking-tight block my-0.5">
+                  0{directive.stageNumber}
+                </span>
+                <span className="font-mono text-[9px] uppercase tracking-widest text-[#8d8880] block">
+                  OF 07
+                </span>
               </div>
-              <h2 className="font-serif text-3xl sm:text-4xl font-light text-foreground">
-                {directive.objectiveTitle}
-              </h2>
+
+              {/* Title & Metadata */}
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-xs text-muted-foreground uppercase tracking-wider">
+                  <span className="text-crimson font-semibold">Active Sector</span>
+                  <span className="text-border">·</span>
+                  <span className="text-[#a8a39a]">{directive.stageSubtitle}</span>
+                </div>
+                <h2 className="font-serif text-2xl sm:text-3xl lg:text-4xl font-light text-foreground leading-tight tracking-tight break-words">
+                  {directive.objectiveTitle}
+                </h2>
+              </div>
             </div>
 
             <p className="font-serif text-base text-[#dcd6c9] leading-relaxed max-w-2xl">
@@ -453,6 +500,17 @@ export function InvestigationDashboard({
               >
                 <span>{directive.buttonLabel}</span>
                 <ArrowRight size={15} />
+              </button>
+
+              <button
+                onClick={() => {
+                  tacticalAudio.playDocOpen();
+                  navigate('/first-directive');
+                }}
+                className="button bg-[#19271c] hover:bg-[#223627] text-[#8deb9e] border border-[#3e6849] py-3 px-4 text-xs font-mono font-bold tracking-wider flex items-center gap-2 shadow"
+              >
+                <FolderOpen size={14} className="text-[#8deb9e]" />
+                <span>First Directive (5 Case Files)</span>
               </button>
 
               {directive.targetEvidenceId && (
@@ -644,10 +702,10 @@ export function InvestigationDashboard({
 
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {stages.map((st) => {
-            const isCompleted = st.number <= progress.stagesCompleted;
-            const isActive = st.number === progress.activeStage && !isCompleted;
-            const isLocked = st.number > progress.activeStage;
-            const stageSchedule = STAGE_SCHEDULE[st.number - 1];
+            const displayInfo = getStageDisplayInfo(st.number, progress);
+            const isCompleted = displayInfo.isCompleted;
+            const isActive = displayInfo.isActive;
+            const isLocked = !displayInfo.isReleased;
 
             return (
               <div
@@ -665,7 +723,7 @@ export function InvestigationDashboard({
                     else if (st.number === 4) navigate('/map');
                     else if (st.number === 5) navigate('/suspects');
                     else if (st.number === 6) navigate('/evidence/EV-0601');
-                    else if (st.number === 7) navigate('/debrief');
+                    else if (st.number === 7) navigate(progress.systemFreezeTriggered || progress.stagesCompleted >= 7 ? '/debrief' : '/evidence/EV-0701');
                   } else {
                     tacticalAudio.playError();
                   }
@@ -675,12 +733,14 @@ export function InvestigationDashboard({
                     ? 'border-crimson bg-[#180e0e] shadow-[0_0_15px_rgba(158,27,27,0.25)] cursor-pointer'
                     : isCompleted
                     ? 'border-emerald-900/60 bg-[#0e1610] cursor-pointer hover:border-emerald-700'
-                    : 'border-border/60 bg-[#111110] opacity-65 cursor-not-allowed'
+                    : 'border-border/40 bg-[#0f0f0e] opacity-60 cursor-not-allowed select-none'
                 }`}
               >
                 <div>
                   <div className="flex items-center justify-between font-mono text-[10px] uppercase mb-2">
-                    <span className="text-muted-foreground">STAGE 0{st.number}</span>
+                    <span className={isLocked ? 'text-muted-foreground/70' : 'text-muted-foreground'}>
+                      STAGE 0{st.number}
+                    </span>
                     {isCompleted ? (
                       <span className="text-emerald-400 font-bold flex items-center gap-1">
                         <CheckCircle2 size={12} /> CLEARED
@@ -691,22 +751,30 @@ export function InvestigationDashboard({
                         ACTIVE
                       </span>
                     ) : (
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Lock size={11} /> SEALED
+                      <span className="text-muted-foreground/80 flex items-center gap-1">
+                        <Lock size={11} /> SIGNAL LOCKED
                       </span>
                     )}
                   </div>
 
-                  <h4 className="font-serif text-lg font-light text-foreground leading-tight">
-                    {st.title}
+                  <h4
+                    className={`font-serif text-lg font-light leading-tight ${
+                      isLocked ? 'text-[#8d8880] italic' : 'text-foreground'
+                    }`}
+                  >
+                    {displayInfo.title}
                   </h4>
-                  <p className="font-mono text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
-                    {st.subtitle}
+                  <p
+                    className={`font-mono text-[11px] mt-1 line-clamp-2 leading-relaxed ${
+                      isLocked ? 'text-[#635f58]' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {displayInfo.subtitle}
                   </p>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-line-soft flex items-center justify-between font-mono text-[10px]">
-                  <span className="text-muted-foreground">{st.date}</span>
+                  <span className="text-muted-foreground/80">{st.date}</span>
                   {isActive && (
                     <span className="text-crimson font-bold flex items-center gap-1">
                       Proceed →
@@ -718,8 +786,8 @@ export function InvestigationDashboard({
                     </span>
                   )}
                   {isLocked && (
-                    <span className="text-muted-foreground/60">
-                      Locked
+                    <span className="text-muted-foreground/50 flex items-center gap-1">
+                      <Lock size={10} /> Sealed
                     </span>
                   )}
                 </div>

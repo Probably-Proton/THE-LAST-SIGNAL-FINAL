@@ -201,7 +201,7 @@ export function CoordinateDeductionModal({
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
                 onKeyDown={() => tacticalAudio.playKeypress()}
-                placeholder="e.g. 37.78874, -122.45709 or House 3893..."
+                placeholder="Enter decoded coordinates or house number..."
                 className="flex-1 bg-[#030604] border border-[#1e4827] text-[#7dfba0] p-2 text-xs focus:outline-none focus:border-emerald-400 font-mono"
                 disabled={isProcessing || isSolved}
                 autoFocus

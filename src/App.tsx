@@ -80,14 +80,24 @@ import {
 
 import { ambientAudio } from '@/src/lib/ambientAudio';
 import { tacticalAudio, type TacticalAudioState } from '@/src/lib/tacticalAudio';
+import { signalAudio, type SignalAudioState } from '@/src/lib/signalAudio';
 import {
   STAGE_SCHEDULE,
+  REGISTRATION_OPEN_ISO,
+  REGISTRATION_OPEN_IST,
+  GAME_LAUNCH_ISO,
+  GAME_LAUNCH_IST,
+  isRegistrationOpen,
+  isGameLaunched,
   calculateStageScore,
   formatCountdown,
   formatToIST,
   getRemainingTime,
+  getStageDisplayInfo,
 } from '@/src/lib/stageConfig';
 
+import { PreRegistrationView } from '@/src/components/PreRegistrationView';
+import { GameLaunchScreen } from '@/src/components/GameLaunchScreen';
 import { ISTClockWidget } from '@/src/components/ISTClockWidget';
 import { CoordinateDeductionModal } from '@/src/components/CoordinateDeductionModal';
 import { MapSecurityGate } from '@/src/components/MapSecurityGate';
@@ -105,11 +115,14 @@ import {
   SuspectDossierAllenDoc,
   SuspectDossierGaikowskiDoc,
   EllenValeJournalDoc,
+  RecordRememberedTomorrowDoc,
 } from '@/src/components/DocumentSystemSheets';
 import {
   InvestigationDashboard,
   getInvestigatorDirective,
 } from '@/src/components/InvestigationDashboard';
+import { StaffRoomView } from '@/src/components/StaffRoomView';
+import { ClassifiedCaseFilesViewer } from '@/src/components/ClassifiedCaseFilesViewer';
 
 type RouteView =
   | 'landing'
@@ -127,7 +140,9 @@ type RouteView =
   | 'team'
   | 'account'
   | 'admin'
-  | 'debrief';
+  | 'debrief'
+  | 'first-directive'
+  | 'case-files';
 
 function getRoute(): { view: RouteView; id?: string } {
   const parts = window.location.pathname.split('/').filter(Boolean);
@@ -136,6 +151,9 @@ function getRoute(): { view: RouteView; id?: string } {
   }
   if (parts[0] === 'suspect-database') {
     return { view: 'suspects' };
+  }
+  if (parts[0] === 'first-directive' || parts[0] === 'case-files' || parts[0] === 'dossiers') {
+    return { view: 'first-directive' };
   }
   const route = parts[0] as RouteView | undefined;
   const known: RouteView[] = [
@@ -153,6 +171,8 @@ function getRoute(): { view: RouteView; id?: string } {
     'account',
     'admin',
     'debrief',
+    'first-directive',
+    'case-files',
   ];
   return { view: known.includes(route as RouteView) ? (route as RouteView) : 'landing' };
 }
@@ -161,12 +181,14 @@ function computeLocationProfile(r: { view: RouteView; id?: string }): import('@/
   if (r.view === 'landing' || r.view === 'login' || r.view === 'register') return 'silent';
   if (r.view === 'dashboard' || r.view === 'progress' || r.view === 'leaderboard' || r.view === 'account' || r.view === 'team') return 'dashboard';
   if (r.view === 'evidence' || r.view === 'suspects' || r.view === 'investigation') return 'archive';
+  if (r.view === 'first-directive' || r.view === 'case-files') return 'document_viewer';
   if (r.view === 'map') return 'map';
   if (r.view === 'messages') return 'messages';
   if (r.view === 'viewer') {
     if (r.id === 'EV-0401') return 'audio_investigation';
-    if (r.id === 'EV-0601') return 'final_investigation';
-    if (r.id === 'EV-0701') return 'ending';
+    if (r.id === 'EV-0601' || r.id === 'EV-0602') return 'archive';
+    if (r.id === 'EV-0701') return 'final_investigation';
+    if (r.id === 'EV-0702') return 'ending';
     return 'document_viewer';
   }
   if (r.view === 'debrief') return 'ending';
@@ -175,6 +197,7 @@ function computeLocationProfile(r: { view: RouteView; id?: string }): import('@/
 
 function navigate(path: string): void {
   tacticalAudio.playNavClick();
+  signalAudio.cleanup();
   window.history.pushState({}, '', path);
   window.dispatchEvent(new PopStateEvent('popstate'));
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -191,6 +214,31 @@ export default function App() {
   const [audioState, setAudioState] = useState<TacticalAudioState>(() => tacticalAudio.getState());
   const [showDirectorReplay, setShowDirectorReplay] = useState(false);
 
+  // Authoritative real-time clock state for timeline transitions
+  const [realNow, setRealNow] = useState<Date>(() => new Date());
+
+  // Continuous drift-free timeline synchronization + tab visibility & focus rechecking
+  useEffect(() => {
+    const updateTime = () => setRealNow(new Date());
+    const interval = setInterval(updateTime, 1000);
+
+    const handleFocus = () => {
+      updateTime();
+    };
+
+    document.addEventListener('visibilitychange', handleFocus);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  const regOpen = isRegistrationOpen(realNow);
+  const gameLaunched = isGameLaunched(realNow);
+
   // Compute active intermission key
   const activeIntermissionKey = useMemo<IntermissionKey | null>(() => {
     if (!currentUser || !progress) return null;
@@ -200,7 +248,7 @@ export default function App() {
     if (progress.mapGateUnlocked && !seen.includes('s3_to_s4')) return 's3_to_s4';
     if (progress.stagesCompleted >= 4 && !seen.includes('s4_to_s5')) return 's4_to_s5';
     if (progress.suspectDbUnlocked && !seen.includes('s5_to_s6')) return 's5_to_s6';
-    if (progress.systemFreezeTriggered && !seen.includes('s6_to_s7')) return 's6_to_s7';
+    if (progress.stagesCompleted >= 6 && !seen.includes('s6_to_s7')) return 's6_to_s7';
     return null;
   }, [currentUser, progress]);
 
@@ -220,6 +268,7 @@ export default function App() {
   // Keep route and session synchronized
   useEffect(() => {
     const handlePopState = (): void => {
+      signalAudio.cleanup();
       const nextRoute = getRoute();
       setRoute(nextRoute);
       const active = getActiveUser();
@@ -279,7 +328,7 @@ export default function App() {
             </p>
             <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center">
               <button className="button button-primary" onClick={() => navigate('/register')}>
-                Register Call-Sign
+                {regOpen ? 'Register Call-Sign' : 'Pre-Registration Notice'}
               </button>
               <button className="button button-secondary" onClick={() => navigate('/login')}>
                 Sign In
@@ -303,10 +352,29 @@ export default function App() {
 
   // Public standalone views
   if (route.view === 'landing') {
-    return <LandingView user={currentUser} onLogout={handleLogout} />;
+    return (
+      <LandingView
+        user={currentUser}
+        isRegOpen={regOpen}
+        isLaunched={gameLaunched}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   if (route.view === 'register') {
+    if (!regOpen) {
+      return (
+        <PreRegistrationView
+          onRegistrationOpen={() => {
+            setRealNow(new Date());
+          }}
+          onNavigateHome={() => navigate('/')}
+          onNavigateLogin={() => navigate('/login')}
+        />
+      );
+    }
+
     return (
       <RegisterView
         onRegistered={(user) => {
@@ -327,6 +395,24 @@ export default function App() {
           navigate('/dashboard');
         }}
       />
+    );
+  }
+
+  // Before official game launch (12:00 AM IST on 1 November 2026),
+  // authenticated students see the atmospheric GameLaunchScreen with live countdown.
+  // Game puzzles, evidence archives, and story intermissions remain sealed.
+  if (currentUser && !gameLaunched) {
+    return (
+      <div className="min-h-screen bg-[#0c0c0b] text-[#ebe6dc] flex flex-col">
+        <GameLaunchScreen
+          user={currentUser}
+          onLogout={handleLogout}
+          onLaunch={() => {
+            setRealNow(new Date());
+            navigate('/dashboard');
+          }}
+        />
+      </div>
     );
   }
 
@@ -448,13 +534,6 @@ export default function App() {
             onLogout={handleLogout}
             onTriggerDirectorReplay={() => setShowDirectorReplay(true)}
           />
-
-          {/* Developer / Testing Toolbar */}
-          <DevTestToolbar
-            user={currentUser!}
-            progress={progress ?? getUserProgress(currentUser!.callSign)}
-            onUpdateProgress={handleUpdateProgress}
-          />
         </div>
       </main>
 
@@ -564,6 +643,19 @@ function Sidebar({
 
         <nav className="nav-list" aria-label="Primary navigation">
           <div className="nav-section-label">Case Files</div>
+          <button
+            className={`nav-item ${current === 'first-directive' || current === 'case-files' ? 'active' : ''}`}
+            onClick={() => {
+              navigate('/first-directive');
+              closeMobile();
+            }}
+          >
+            <FolderOpen size={16} className={current === 'first-directive' ? 'text-emerald-400' : 'text-muted-foreground'} />
+            <span>First Directive (5 Files)</span>
+            <span className="ml-auto font-mono text-[9px] text-[#8deb9e] border border-[#2e5237] bg-[#122116] px-1.5 py-0.5">
+              DOSSIERS
+            </span>
+          </button>
           {navItems.map((item) => {
             const Icon = iconMap[item.icon] ?? FileText;
             const active =
@@ -704,9 +796,18 @@ function PageDispatcher({
       );
     case 'admin':
       return (
-        <AdminView
+        <StaffRoomView
+          user={user}
           progress={progress}
           onUpdateProgress={onUpdateProgress}
+          onLogout={onLogout}
+        />
+      );
+    case 'first-directive':
+    case 'case-files':
+      return (
+        <ClassifiedCaseFilesViewer
+          onReturnToDirective={() => navigate('/dashboard')}
         />
       );
     default:
@@ -741,198 +842,19 @@ function PageHeader({
   );
 }
 
-function DemoBanner({
-  message = 'Prototype environment. User state, credentials, and progress are stored locally in this browser session. Official answers and scores will be verified server-side on launch.',
-}: {
-  message?: string;
-}) {
-  return (
-    <div className="demo-notice">
-      <Sparkles size={16} />
-      <span>{message}</span>
-    </div>
-  );
-}
-
-/* =========================================================================
-   DEVELOPER / TESTING TOOLBAR (Explicitly Identified Testing Control)
-   ========================================================================= */
-
-function DevTestToolbar({
-  user,
-  progress,
-  onUpdateProgress,
-}: {
-  user: PrototypeUser;
-  progress: UserProgress;
-  onUpdateProgress: (updater: (prev: UserProgress) => UserProgress) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="dev-test-panel">
-      <div className="flex items-center justify-between cursor-pointer" onClick={() => setOpen(!open)}>
-        <div className="dev-title flex items-center gap-2 m-0 text-xs">
-          <Key size={14} />
-          <span>PROTOTYPE TEST BENCH [DEVELOPMENT &amp; VERIFICATION ONLY]</span>
-        </div>
-        <span className="font-mono text-[10px] text-muted-foreground hover:text-foreground">
-          {open ? 'Hide ▲' : 'Expand Controls ▼'}
-        </span>
-      </div>
-
-      {open && (
-        <div className="mt-3 pt-3 border-t border-[#461e1e] space-y-3">
-          <p className="text-[10px] text-[#baa49f] leading-relaxed m-0 font-mono">
-            Simulate investigator task completions or reset progress to verify zero-state requirements.
-            (Ordinary game buttons do not auto-solve tasks).
-          </p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button
-              className="button button-secondary text-[10px] py-1 px-3"
-              onClick={() => {
-                onUpdateProgress((prev) => ({
-                  ...prev,
-                  tasksCompleted: prev.tasksCompleted + 1,
-                  status: 'IN PROGRESS',
-                }));
-              }}
-            >
-              + Complete Test Task ({progress.tasksCompleted + 1})
-            </button>
-
-            <button
-              className="button button-secondary text-[10px] py-1 px-3"
-              disabled={progress.stagesCompleted >= 7}
-              onClick={() => {
-                onUpdateProgress((prev) => {
-                  const nextStage = Math.min(7, prev.stagesCompleted + 1);
-                  return {
-                    ...prev,
-                    stagesCompleted: nextStage,
-                    activeStage: Math.min(7, nextStage + 1),
-                    status: nextStage >= 7 ? 'COMPLETED' : 'IN PROGRESS',
-                    score: prev.score + 50,
-                  };
-                });
-              }}
-            >
-              + Simulate Stage Clearance (Stage {progress.stagesCompleted + 1})
-            </button>
-
-            {progress.targetLocationChoice !== null && progress.targetChoiceEvaluationStatus !== 'revealed' && (
-              <button
-                className="button button-secondary text-[10px] py-1 px-3 text-amber-300 border-amber-800 hover:bg-amber-950/50"
-                onClick={() => {
-                  const chosen = progress.targetLocationChoice ?? 4;
-                  const isCorrect = chosen === 4;
-                  const nowIso = new Date().toISOString();
-                  const scoreBreakdown = calculateStageScore(4, nowIso, { isCorrectTarget: isCorrect });
-                  tacticalAudio.playSuccess();
-                  onUpdateProgress((prev) => {
-                    const nextCompleted = Math.max(prev.stagesCompleted, 4);
-                    const nextActive = Math.max(prev.activeStage, 5);
-                    const nextUnlocked = Array.from(new Set([...prev.unlockedEvidenceIds, 'EV-0501']));
-                    const nextScores = {
-                      ...prev.stageScores,
-                      4: scoreBreakdown.totalScore,
-                    };
-                    const totalScore = Object.values(nextScores).reduce((a, b) => a + b, 0);
-                    return {
-                      ...prev,
-                      targetChoiceEvaluationStatus: 'revealed',
-                      stagesCompleted: nextCompleted,
-                      activeStage: nextActive,
-                      unlockedEvidenceIds: nextUnlocked,
-                      stageScores: nextScores,
-                      stageSolveTimestamps: {
-                        ...prev.stageSolveTimestamps,
-                        4: nowIso,
-                      },
-                      stageScoringEligible: {
-                        ...prev.stageScoringEligible,
-                        4: scoreBreakdown.scoringEligible,
-                      },
-                      score: totalScore,
-                    };
-                  });
-                }}
-              >
-                ⚡ Fast-Forward Map Reveal Evaluation (Stage 04)
-              </button>
-            )}
-
-            <button
-              className="button button-primary text-[10px] py-1 px-3 bg-red-900 hover:bg-red-800"
-              onClick={() => {
-                if (confirm('Reset this account progress back to fresh zero state?')) {
-                  onUpdateProgress((prev) => ({
-                    ...prev,
-                    stagesCompleted: 0,
-                    activeStage: 1,
-                    tasksCompleted: 0,
-                    score: 0,
-                    status: 'NOT STARTED',
-                    teamName: null,
-                    teamCode: null,
-                    targetLocationChoice: null,
-                    targetChoiceLocked: false,
-                    targetLocationCorrectionUsed: false,
-                    targetChoiceEvaluationStatus: 'unsubmitted',
-                    targetChoiceRevealTimestamp: undefined,
-                    stage2DeductionSolved: false,
-                    mapGateUnlocked: false,
-                    suspectDbUnlocked: false,
-                    systemFreezeTriggered: false,
-                    stageSolveTimestamps: {},
-                    stageScoringEligible: {},
-                    stageScores: {},
-                    organizerAuditLog: [],
-                    unlockedEvidenceIds: ['EV-0101', 'EV-0102', 'EV-0103', 'ARC-002'],
-                  }));
-                }
-              }}
-            >
-              <RefreshCw size={12} /> Reset Account Progress to 0
-            </button>
-          </div>
-
-          {/* Cipher Analysis Diagnostic */}
-          <div className="mt-3 pt-3 border-t border-[#461e1e]/60 space-y-2">
-            <span className="font-mono text-[10px] text-crimson font-bold uppercase tracking-wider block">
-              Forensic Cipher Analysis Diagnostic (Exorcist Memorandum 74-03-B)
-            </span>
-            <div className="p-2.5 bg-[#140b0b] border border-[#3d1919] text-[10px] font-mono text-[#dcd6c9] space-y-1.5 leading-relaxed">
-              <div>
-                <strong className="text-crimson">Shift Hypothesis Test:</strong> Full programmatic permutation across all 25 Caesar shifts confirms interior text is not a simple shift cipher.
-              </div>
-              <div>
-                <strong className="text-[#8bb393]">Acrostic / Telestich Structure:</strong>
-                <ul className="list-disc pl-4 text-muted-foreground mt-0.5 space-y-0.5">
-                  <li>First characters of lines 1–6: <code>Z</code>, <code>K</code>, <code>C</code>, <code>A</code>, <code>S</code>, <code>E</code> → <strong>zkcase</strong></li>
-                  <li>Last characters of lines 1–6: <code>c</code>, <code>a</code>, <code>s</code>, <code>e</code>, <code>1</code>, <code>7</code> → <strong>case17</strong></li>
-                </ul>
-              </div>
-              <div className="text-muted-foreground text-[9px]">
-                Player view displays authentic archival sentences preserving the cryptographic margins. Terminal accepts normalized credentials.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* =========================================================================
    1. HOMEPAGE (/) — Cinematic Landing + Conditional CTAs
    ========================================================================= */
 
 function LandingView({
   user,
+  isRegOpen,
+  isLaunched,
   onLogout,
 }: {
   user: PrototypeUser | null;
+  isRegOpen: boolean;
+  isLaunched: boolean;
   onLogout: () => void;
 }) {
   const featured = evidence.filter((item) => item.status === 'available').slice(0, 3);
@@ -979,7 +901,7 @@ function LandingView({
                   onClick={() => navigate('/register')}
                   className="button button-primary hidden sm:inline-flex"
                 >
-                  Register Call-Sign
+                  {isRegOpen ? 'Register Call-Sign' : 'Pre-Registration'}
                 </button>
               </>
             )}
@@ -1003,7 +925,13 @@ function LandingView({
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 font-mono text-xs uppercase tracking-[0.28em] text-[#8d8880]">
             <span>Case File no. {CASE_ID}</span>
             <span aria-hidden className="h-px w-10 bg-[#8d8880]/50" />
-            <span>Status: Registration Active</span>
+            <span>
+              {!isRegOpen
+                ? `Status: Pre-Registration (Opens ${REGISTRATION_OPEN_IST})`
+                : !isLaunched
+                ? `Status: Registration Open (Launch ${GAME_LAUNCH_IST})`
+                : 'Status: Investigation Active'}
+            </span>
           </div>
 
           <div className="mt-8 flex items-start gap-6">
@@ -1029,7 +957,9 @@ function LandingView({
                 onClick={() => navigate('/dashboard')}
                 className="button button-primary px-8 py-4 text-xs font-medium tracking-[0.26em]"
               >
-                RESUME INVESTIGATION ({user.callSign})
+                {!isLaunched
+                  ? `AWAITING TRANSMISSION (${user.callSign})`
+                  : `RESUME INVESTIGATION (${user.callSign})`}
                 <ArrowRight size={16} />
               </button>
             ) : (
@@ -1037,7 +967,7 @@ function LandingView({
                 onClick={() => navigate('/register')}
                 className="button button-primary px-8 py-4 text-xs font-medium tracking-[0.26em]"
               >
-                BEGIN INVESTIGATION
+                {!isRegOpen ? 'PRE-REGISTRATION NOTICE' : 'REGISTER CALL-SIGN'}
                 <ArrowRight size={16} />
               </button>
             )}
@@ -1056,10 +986,10 @@ function LandingView({
         {/* Case Metadata Strip */}
         <dl className="relative mx-auto grid w-full max-w-7xl grid-cols-2 border-t border-[#2a2927] px-5 font-mono text-[11px] uppercase tracking-[0.2em] md:grid-cols-4 md:px-10">
           {[
-            ['Planned Launch', '01 Nov 2026 / 00:00 IST'],
+            ['Planned Launch', GAME_LAUNCH_IST],
+            ['Registration Window', REGISTRATION_OPEN_IST],
             ['Investigation Duration', '14 Calendar Days'],
             ['Stage Windows', '07 Waves (48h each)'],
-            ['Event Classification', 'Fictional School Mystery'],
           ].map(([label, value]) => (
             <div
               key={label}
@@ -1110,34 +1040,47 @@ function LandingView({
           </div>
 
           <ol className="border-t border-[#2a2927]">
-            {stages.map((stage) => (
-              <li
-                key={stage.number}
-                className="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-4 border-b border-[#2a2927] py-6 md:grid-cols-[5rem_1fr_auto]"
-              >
-                <span className="font-mono text-sm text-[#8d8880]">
-                  {String(stage.number).padStart(2, '0')}
-                </span>
-                <div>
-                  <h3 className="font-serif text-2xl font-light text-[#ebe6dc] md:text-3xl">
-                    {stage.title}
-                  </h3>
-                  <p className="mt-1 font-mono text-xs uppercase tracking-[0.2em] text-[#8d8880]">
-                    {stage.subtitle}
-                  </p>
-                </div>
-                <span className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-[0.22em] text-[#8d8880]">
-                  {stage.number === 1 ? (
-                    <span className="text-crimson font-medium">Stage 01 Unlock</span>
-                  ) : (
-                    <>
-                      <Lock size={12} />
-                      <span>Sealed</span>
-                    </>
-                  )}
-                </span>
-              </li>
-            ))}
+            {stages.map((stage) => {
+              const displayInfo = getStageDisplayInfo(stage.number, null);
+              const isLocked = !displayInfo.isReleased;
+
+              return (
+                <li
+                  key={stage.number}
+                  className="grid grid-cols-[3.5rem_1fr_auto] items-baseline gap-4 border-b border-[#2a2927] py-6 md:grid-cols-[5rem_1fr_auto]"
+                >
+                  <span className="font-mono text-sm text-[#8d8880]">
+                    {String(stage.number).padStart(2, '0')}
+                  </span>
+                  <div>
+                    <h3
+                      className={`font-serif text-2xl font-light md:text-3xl ${
+                        isLocked ? 'text-[#8d8880] italic' : 'text-[#ebe6dc]'
+                      }`}
+                    >
+                      {displayInfo.title}
+                    </h3>
+                    <p
+                      className={`mt-1 font-mono text-xs uppercase tracking-[0.2em] ${
+                        isLocked ? 'text-[#615e58]' : 'text-[#8d8880]'
+                      }`}
+                    >
+                      {displayInfo.subtitle}
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-[0.22em] text-[#8d8880]">
+                    {stage.number === 1 ? (
+                      <span className="text-crimson font-medium">Stage 01 Unlock</span>
+                    ) : (
+                      <>
+                        <Lock size={12} />
+                        <span>SIGNAL LOCKED</span>
+                      </>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ol>
         </div>
       </section>
@@ -1499,8 +1442,6 @@ function InvestigationView({
         description="A sequential record of the case. Stages unlock according to the official event timetable or verified problem solves."
       />
 
-      <DemoBanner />
-
       {/* Active Objective & Immediate Tactical Directive */}
       <div className="panel border-l-4 border-l-crimson bg-[#151413] mb-8 p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -1588,9 +1529,10 @@ function InvestigationView({
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
           {stages.map((st) => {
-            const isCompleted = st.number <= progress.stagesCompleted;
-            const isAvailable = st.number === progress.activeStage && !isCompleted;
-            const isLocked = st.number > progress.activeStage;
+            const displayInfo = getStageDisplayInfo(st.number, progress);
+            const isCompleted = displayInfo.isCompleted;
+            const isAvailable = displayInfo.isActive;
+            const isLocked = !displayInfo.isReleased;
             const state = isCompleted ? 'completed' : isAvailable ? 'available' : 'locked';
 
             return (
@@ -1601,7 +1543,7 @@ function InvestigationView({
                     ? 'border-crimson bg-[#161514] shadow-[0_0_15px_rgba(158,27,27,0.08)]'
                     : isCompleted
                     ? 'border-[#2d3b2f]'
-                    : 'opacity-65'
+                    : 'opacity-65 bg-[#0e0e0d]'
                 }`}
               >
                 <div className="flex items-start justify-between">
@@ -1610,13 +1552,25 @@ function InvestigationView({
                       {String(st.number).padStart(2, '0')}
                     </span>
                     <div>
-                      <h3 className="font-serif text-2xl font-light text-foreground">{st.title}</h3>
-                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground mt-0.5">
-                        {st.subtitle}
+                      <h3
+                        className={`font-serif text-2xl font-light ${
+                          isLocked ? 'text-[#8d8880] italic' : 'text-foreground'
+                        }`}
+                      >
+                        {displayInfo.title}
+                      </h3>
+                      <p
+                        className={`font-mono text-xs uppercase tracking-[0.18em] mt-0.5 ${
+                          isLocked ? 'text-[#615e58]' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {displayInfo.subtitle}
                       </p>
                     </div>
                   </div>
-                  <span className={`status-pill ${state}`}>{state}</span>
+                  <span className={`status-pill ${state}`}>
+                    {isLocked ? 'SIGNAL LOCKED' : state}
+                  </span>
                 </div>
 
                 <div className="mt-6 flex items-center justify-between font-mono text-xs border-t border-line-soft pt-4 text-muted-foreground">
@@ -1638,7 +1592,11 @@ function InvestigationView({
                       </button>
                     </div>
                   ) : (
-                    <span>{isCompleted ? '✓ Stage Solved & Cleared' : '🔒 Sealed by Official Timetable'}</span>
+                    <span>
+                      {isCompleted
+                        ? '✓ Stage Solved & Cleared'
+                        : '🔒 Sealed · Content Encrypted Until Release'}
+                    </span>
                   )}
                 </div>
               </div>
@@ -1715,8 +1673,6 @@ function EvidenceRoomView({ progress }: { progress: UserProgress }) {
         title="Evidence Room"
         description="Every recovered document, photograph, and signal cassette is catalogued here. Examine accessible files or inspect sealed dossiers."
       />
-
-      <DemoBanner />
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-y border-border py-4">
@@ -1855,13 +1811,10 @@ function EvidenceViewerView({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showCoordModal, setShowCoordModal] = useState(false);
-  const [showHints, setShowHints] = useState(false);
-  const [hintTier, setHintTier] = useState<1 | 2>(1);
   const zoom = ZOOM_STEPS[zoomIdx];
 
   const pageTitles = useMemo(() => {
     if (!item) return ['Document'];
-    if (item.id === 'EV-0701') return ['Final Chronicle Article', 'Debrief Certificate'];
     if (item.id === 'EV-0101') return ['SFPD Scene Report DOC-SFPD-74-091', 'Alleyway Photograph'];
     if (item.id === 'EV-0102') return ['BCI Technical Lab Teardown', 'Hardware Photos'];
     if (item.id === 'EV-0103') return ['Exorcist Letter & Memo', 'Forensic Annotation'];
@@ -1871,7 +1824,10 @@ function EvidenceViewerView({
     if (item.id === 'EV-0301') return ['Signal Corps Survey DOC-SURV-74-33', 'Microwave Mast Photo'];
     if (item.id === 'EV-0502') return ['DOJ Dossier: Arthur Leigh Allen', 'Investigation Corroboration'];
     if (item.id === 'EV-0503') return ['Intelligence Dossier: Richard Gaikowski', 'Good Times Correlation'];
-    if (item.id === 'EV-0601') return ["Ellen Vale's Journal DOC-JRN-74-06", 'FINAL_REVIEW.mp4 Reel'];
+    if (item.id === 'EV-0601') return ['Incident Report 06-B', 'The Torn Note', 'ARCHIVE_ACCESS.txt'];
+    if (item.id === 'EV-0602') return ['Archival Revision Log', 'Unsent Teletype'];
+    if (item.id === 'EV-0701') return ["Ellen Vale's Journal (Oct 1971)", 'FINAL_REVIEW.mp4 Reel'];
+    if (item.id === 'EV-0702') return ['Chronicle Late Edition', 'Station Incident Report'];
     if (item.category === 'Audio') return ['Audio Cassette Deck', 'Signal Waveform Analysis'];
     if (item.category === 'Newspaper') return ['Chronicle Front Page', 'Archival Metadata'];
     return ['Incident Report', 'Photo Attachment', 'Witness Continuation'];
@@ -2038,16 +1994,6 @@ function EvidenceViewerView({
         <div className="flex items-center gap-3">
           {item.id === 'EV-0103' && (
             <>
-              <button
-                onClick={() => {
-                  tacticalAudio.playButtonClick();
-                  setShowHints(true);
-                }}
-                className="button button-secondary text-xs flex items-center gap-1.5 font-mono py-1.5 px-3"
-              >
-                <HelpCircle size={14} />
-                <span>Case Hints</span>
-              </button>
               <button
                 onClick={() => {
                   tacticalAudio.playButtonClick();
@@ -2253,23 +2199,32 @@ function EvidenceViewerView({
                 <SuspectDossierAllenDoc item={item} />
               ) : item.id === 'EV-0503' ? (
                 <SuspectDossierGaikowskiDoc item={item} />
-              ) : item.id === 'EV-0601' ? (
+              ) : item.id === 'EV-0601' || item.id === 'EV-0602' ? (
+                <RecordRememberedTomorrowDoc
+                  item={item}
+                  progress={progress}
+                  onUpdateProgress={onUpdateProgress}
+                  onAdvanceToStage7={() => navigate('/evidence/EV-0701')}
+                />
+              ) : item.id === 'EV-0701' ? (
                 page === 0 ? (
                   <div className="space-y-8">
                     <EllenValeJournalDoc item={item} />
                     <VideoAttachmentViewer
                       progress={progress}
                       onUpdateProgress={onUpdateProgress!}
-                      onAdvanceToStage7={() => navigate('/evidence/EV-0701')}
+                      onAdvanceToStage7={() => navigate('/debrief')}
                     />
                   </div>
                 ) : (
                   <VideoAttachmentViewer
                     progress={progress}
                     onUpdateProgress={onUpdateProgress!}
-                    onAdvanceToStage7={() => navigate('/evidence/EV-0701')}
+                    onAdvanceToStage7={() => navigate('/debrief')}
                   />
                 )
+              ) : item.id === 'EV-0702' ? (
+                <NewspaperSheet item={item} />
               ) : item.category === 'Audio' ? (
                 <AudioPlayerSheet item={item} />
               ) : item.category === 'Newspaper' ? (
@@ -2303,20 +2258,13 @@ function EvidenceViewerView({
                   ? 'STAGE 01 CLEARED. Stage 02 records bay has been unlocked.'
                   : 'Sector 01 files remain locked. Inspect the affixed memorandum note and enter directory credentials.'}
               </p>
-              <div className="space-y-2 pt-2">
+              <div className="pt-2">
                 <button
                   onClick={() => setShowTerminal(true)}
                   className="button w-full flex items-center justify-center gap-2 bg-[#1b3b22] hover:bg-[#23502d] text-[#e3f7e6] border border-[#3e784c] text-xs font-mono py-2.5"
                 >
                   <Terminal size={14} className="text-emerald-400" />
                   <span>ACCESS LOCKED FILES TERMINAL</span>
-                </button>
-                <button
-                  onClick={() => setShowHints(true)}
-                  className="button button-secondary w-full flex items-center justify-center gap-1.5 text-xs font-mono py-1.5 text-muted-foreground hover:text-foreground"
-                >
-                  <HelpCircle size={13} />
-                  <span>Case File Hints ({isStage1Cleared ? 'Solved' : '2 Tiers'})</span>
                 </button>
               </div>
             </div>
@@ -2377,24 +2325,6 @@ function EvidenceViewerView({
               </div>
             </div>
           </div>
-
-          <div className="panel">
-            <div className="panel-heading">
-              <span>INVESTIGATOR FIELD NOTES</span>
-              <FileText size={14} />
-            </div>
-            <p className="font-['Caveat'] text-2xl text-[#d4cbba] leading-snug">
-              {item.id === 'CAS-017'
-                ? 'Witness recalls late evening movements near Presidio Heights. Cross-reference the house number derived from the photo coordinate cipher.'
-                : item.id === 'EV-0401'
-                ? 'The call is 47 seconds total, but speech stops at second 30. Decode the unexplained 17 seconds.'
-                : item.id === 'EV-0103'
-                ? 'Notice the unusual alignment of line starts and ends on the affixed memorandum. Look for vertical patterns rather than traditional horizontal shifts.'
-                : item.id === 'ARC-002'
-                ? 'Several entries have heavy ink obscuring the passwords. Cross-reference the remaining fragments with directory records.'
-                : 'Compare this file with the witness testimony. Do not treat the current classification as a final conclusion.'}
-            </p>
-          </div>
         </aside>
       </div>
 
@@ -2416,101 +2346,6 @@ function EvidenceViewerView({
           progress={progress}
           onUpdateProgress={onUpdateProgress}
         />
-      )}
-
-      {/* Case Hints Modal */}
-      {showHints && (
-        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4">
-          <div className="bg-[#141514] border border-border max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
-            <div className="flex justify-between items-center border-b border-border pb-3">
-              <div className="flex items-center gap-2">
-                <HelpCircle size={18} className="text-crimson" />
-                <h3 className="font-serif text-lg text-foreground">Exorcist Memorandum — Clue Docket</h3>
-              </div>
-              <button
-                onClick={() => setShowHints(false)}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Close hints"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <p className="font-mono text-xs text-muted-foreground leading-relaxed">
-              Forensic analysis reveals the six lines affixed to EV-0103 follow a deliberate spatial encoding.
-              Clues are disclosed progressively to maintain investigative challenge integrity:
-            </p>
-
-            <div className="space-y-3 pt-2">
-              <div className="p-3 bg-[#181918] border border-border">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs text-foreground font-semibold">
-                    CLUE 01: CIPHER STRUCTURE
-                  </span>
-                  <span className="status-pill available">TIER 1</span>
-                </div>
-                <p className="font-mono text-xs text-muted-foreground leading-relaxed">
-                  Programmatic testing across all 25 standard Caesar shifts confirms the interior text is
-                  not a uniform Caesar cipher. Traditional horizontal reading will not produce English prose.
-                  Focus attention exclusively on the vertical margins (the very first character and very last
-                  character of each of the 6 lines).
-                </p>
-              </div>
-
-              <div className="p-3 bg-[#181918] border border-border">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-xs text-foreground font-semibold">
-                    CLUE 02: TELESTICH &amp; CREDENTIAL FORMAT
-                  </span>
-                  <button
-                    onClick={() => {
-                      tacticalAudio.playButtonClick();
-                      setHintTier(2);
-                    }}
-                    className="status-pill restricted text-[10px] cursor-pointer"
-                  >
-                    {hintTier === 2 ? 'DISCLOSED' : 'CLICK TO REVEAL TIER 2'}
-                  </button>
-                </div>
-                {hintTier === 2 ? (
-                  <div className="font-mono text-xs text-[#dcd6c9] leading-relaxed pt-1 border-t border-border mt-2 space-y-1.5">
-                    <p>
-                      <strong>Forensic Extraction Methodology:</strong>
-                    </p>
-                    <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
-                      <li>
-                        <strong>Left Margin (Acrostic):</strong> Read the initial character of each line from top to bottom (lines 1 through 6) to derive the archive directory call-sign.
-                      </li>
-                      <li>
-                        <strong>Right Margin (Telestich):</strong> Read the final character of each line from top to bottom (lines 1 through 6) to deduce the master decryption key.
-                      </li>
-                    </ul>
-                    <p className="text-[11px] text-[#8bb393] pt-1">
-                      Enter the credentials recovered from the evidence into the Teletype Terminal.
-                    </p>
-                  </div>
-                ) : (
-                  <p className="font-mono text-xs text-muted-foreground/60 italic">
-                    Tier 2 provides explicit vertical reading instructions. Keep hidden if attempting to
-                    decode manually.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={() => {
-                  tacticalAudio.playButtonClick();
-                  setShowHints(false);
-                }}
-                className="button button-secondary text-xs"
-              >
-                Close Clue Docket
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </>
   );
@@ -3012,44 +2847,69 @@ function ContinuationSheet({ item }: { item: EvidenceItem }) {
 }
 
 function AudioPlayerSheet({ item }: { item: EvidenceItem }) {
-  const [playing, setPlaying] = useState(false);
-  const [seconds, setSeconds] = useState(0);
-  const [speed, setSpeed] = useState<number>(1);
-  const [muted, setMuted] = useState(false);
+  const [audioState, setAudioState] = useState<SignalAudioState>(() => signalAudio.getState());
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (playing) {
-      timer = setInterval(() => {
-        setSeconds((s) => {
-          if (s >= 47) {
-            setPlaying(false);
-            return 0;
-          }
-          return s + 1;
-        });
-      }, 1000 / speed);
-    }
-    return () => clearInterval(timer);
-  }, [playing, speed]);
+    return signalAudio.subscribe((state) => {
+      setAudioState(state);
+    });
+  }, []);
 
+  // Guarantee clean stop when unmounting or leaving this evidence viewer
   useEffect(() => {
-    if (playing) {
-      tacticalAudio.setLocationProfile('audio_investigation');
-    } else {
-      tacticalAudio.setLocationProfile('document_viewer');
-    }
     return () => {
-      tacticalAudio.setLocationProfile('document_viewer');
+      signalAudio.cleanup();
     };
-  }, [playing]);
+  }, []);
+
+  const totalDuration = Math.round(audioState.duration) || 59;
+  const currentSec = Math.floor(audioState.currentTime);
+  const progressRatio = totalDuration > 0 ? audioState.currentTime / totalDuration : 0;
+
+  const formatTime = (sec: number) => {
+    const mins = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${mins < 10 ? '0' : ''}${mins}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const handleTogglePlay = async () => {
+    tacticalAudio.playButtonClick();
+    await signalAudio.togglePlayPause('document_viewer');
+  };
+
+  const handleToggleMute = () => {
+    tacticalAudio.playButtonClick();
+    signalAudio.toggleMute();
+  };
+
+  const handleSpeedCycle = () => {
+    tacticalAudio.playButtonClick();
+    const speeds = [1, 1.25, 1.5, 2];
+    const currentIndex = speeds.indexOf(audioState.playbackRate);
+    const nextSpeed = speeds[(currentIndex + 1) % speeds.length] ?? 1;
+    signalAudio.setPlaybackRate(nextSpeed);
+  };
+
+  const handleSeek = (seconds: number) => {
+    signalAudio.seek(seconds);
+  };
+
+  const handleRestart = () => {
+    tacticalAudio.playButtonClick();
+    signalAudio.seek(0);
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const vol = parseFloat(e.target.value);
+    signalAudio.setVolume(vol);
+  };
 
   return (
     <div className="paper-sheet p-8 md:p-12 relative text-ink font-mono">
       <div className="flex items-center justify-between border-b-2 border-ink pb-4">
         <div>
           <p className="text-[10px] uppercase tracking-[0.22em] text-ink/75 font-semibold">
-            AUDIO EVIDENCE CASSETTE — 47 SECONDS
+            AUTHENTIC AUDIO EVIDENCE CASSETTE // 59 SECONDS
           </p>
           <h2 className="font-serif text-2xl font-semibold text-ink mt-1">{item.title}</h2>
         </div>
@@ -3058,64 +2918,169 @@ function AudioPlayerSheet({ item }: { item: EvidenceItem }) {
 
       <div className="my-6 p-6 bg-[#161514] text-[#ebe6dc] border border-ink/40 shadow-inner">
         <div className="flex items-center justify-between text-xs font-mono text-[#8d8880] mb-3">
-          <span>CHANNEL A: DISPATCH PULSE</span>
-          <span>{seconds < 10 ? `00:0${seconds}` : `00:${seconds}`} / 00:47</span>
+          <div className="flex items-center gap-2">
+            <span className={`size-2 rounded-full ${audioState.isPlaying ? 'bg-crimson animate-ping' : 'bg-[#4a4844]'}`} />
+            <span className="text-[#ebe6dc] font-semibold">CHANNEL A: DISPATCH INTERCEPT</span>
+            <span className="text-[10px] text-muted-foreground uppercase hidden sm:inline">
+              ({currentSec <= 30 ? 'MONOLOGUE' : 'CARRIER ANOMALY'})
+            </span>
+          </div>
+          <div className="flex items-center gap-2 font-mono">
+            <span className="text-crimson font-bold">{formatTime(currentSec)}</span>
+            <span className="text-[#6d6860]">/</span>
+            <span>{formatTime(totalDuration)}</span>
+          </div>
         </div>
 
-        <div className="flex items-center justify-between gap-1 h-16 bg-[#0a0a09] p-3 border border-[#2a2927]">
-          {Array.from({ length: 36 }).map((_, i) => {
-            const height = playing
-              ? Math.max(15, (Math.sin(i * 0.5 + seconds) * 0.5 + 0.5) * 100)
-              : 25 + ((i * 13) % 45);
+        {/* Interactive Scrub / Waveform Display */}
+        <div 
+          className="relative h-20 bg-[#0a0a09] p-3 border border-[#2a2927] cursor-pointer group flex items-end gap-1 select-none overflow-hidden"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+            handleSeek(fraction * totalDuration);
+          }}
+          title="Click to seek along timeline"
+        >
+          {Array.from({ length: 44 }).map((_, i) => {
+            const barFraction = i / 44;
+            const isPassed = barFraction <= progressRatio;
+            const baseAmp = i < 22 ? 35 + ((i * 17) % 55) : 20 + ((i * 23) % 40);
+            const dynamicAmp = audioState.isPlaying
+              ? Math.max(15, Math.min(100, baseAmp + Math.sin(i * 0.8 + currentSec * 4) * 25))
+              : baseAmp;
+
             return (
               <span
                 key={i}
-                className={`w-1 rounded-sm transition-all duration-150 ${
-                  i < (seconds / 47) * 36 ? 'bg-crimson' : 'bg-[#3b3a38]'
+                className={`flex-1 rounded-xs transition-all duration-100 ${
+                  isPassed
+                    ? 'bg-crimson group-hover:bg-[#e03838]'
+                    : 'bg-[#2e2d2b] group-hover:bg-[#3d3b37]'
                 }`}
-                style={{ height: `${height}%` }}
+                style={{ height: `${dynamicAmp}%` }}
               />
             );
           })}
+          {/* Progress Playhead Line */}
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_8px_white] pointer-events-none transition-all duration-75"
+            style={{ left: `${progressRatio * 100}%` }}
+          />
         </div>
 
-        <div className="flex items-center justify-between mt-4 pt-3 border-t border-[#2a2927]">
-          <div className="flex items-center gap-3">
+        {/* Native range slider scrubber for precise accessibility */}
+        <div className="mt-3">
+          <input
+            type="range"
+            min={0}
+            max={totalDuration}
+            step={0.1}
+            value={audioState.currentTime}
+            onChange={(e) => handleSeek(parseFloat(e.target.value))}
+            className="w-full accent-crimson cursor-pointer h-1.5 bg-[#252422] rounded-none"
+            aria-label="Audio scrubber"
+          />
+        </div>
+
+        {/* Master Audio Deck Controls */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-[#2a2927]">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setPlaying(!playing)}
-              className="size-9 bg-crimson text-white grid place-items-center rounded-sm hover:bg-[#b52222]"
+              onClick={handleTogglePlay}
+              className="size-9 bg-crimson text-white grid place-items-center rounded-sm hover:bg-[#b52222] transition-colors shadow-sm"
+              aria-label={audioState.isPlaying ? 'Pause transmission' : 'Play transmission'}
+              title={audioState.isPlaying ? 'Pause' : 'Play'}
             >
-              {playing ? <Pause size={16} /> : <Play size={16} fill="currentColor" />}
+              {audioState.isPlaying ? <Pause size={16} /> : <Play size={16} fill="currentColor" />}
             </button>
+
             <button
-              onClick={() => setMuted(!muted)}
-              className="size-9 border border-[#2a2927] text-[#ebe6dc] grid place-items-center rounded-sm hover:border-[#44423e]"
+              onClick={handleRestart}
+              className="size-9 border border-[#2a2927] text-[#ebe6dc] grid place-items-center rounded-sm hover:border-[#44423e] hover:bg-white/5 transition-colors"
+              aria-label="Restart transmission from beginning"
+              title="Restart from 00:00"
             >
-              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              <RotateCcw size={14} />
             </button>
+
+            <button
+              onClick={handleToggleMute}
+              className={`size-9 border grid place-items-center rounded-sm transition-colors ${
+                audioState.isMuted
+                  ? 'border-crimson text-crimson bg-crimson/10'
+                  : 'border-[#2a2927] text-[#ebe6dc] hover:border-[#44423e]'
+              }`}
+              aria-label={audioState.isMuted ? 'Unmute' : 'Mute'}
+              title={audioState.isMuted ? 'Unmute' : 'Mute'}
+            >
+              {audioState.isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            </button>
+
+            {/* Volume Slider */}
+            <div className="hidden sm:flex items-center gap-2 px-2 py-1 bg-[#0f0e0d] border border-[#2a2927]">
+              <span className="text-[10px] text-[#8d8880] uppercase">VOL</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={audioState.isMuted ? 0 : audioState.volume}
+                onChange={handleVolumeChange}
+                className="w-16 accent-crimson h-1 bg-[#252422]"
+                aria-label="Volume level"
+              />
+              <span className="text-[10px] font-mono text-[#ebe6dc] w-7 text-right">
+                {audioState.isMuted ? '0%' : `${Math.round(audioState.volume * 100)}%`}
+              </span>
+            </div>
           </div>
 
-          <button
-            onClick={() => setSpeed(speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1)}
-            className="border border-[#2a2927] px-3 py-1 text-xs text-[#ebe6dc] rounded-sm hover:border-[#44423e]"
-          >
-            {speed}× SPEED
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                tacticalAudio.playButtonClick();
+                signalAudio.toggleLoop();
+              }}
+              className={`border px-2.5 py-1 text-xs font-mono rounded-sm transition-colors ${
+                audioState.isLooping
+                  ? 'border-crimson text-crimson bg-crimson/10 font-bold'
+                  : 'border-[#2a2927] text-[#8d8880] hover:text-[#ebe6dc] hover:border-[#44423e]'
+              }`}
+              title="Toggle continuous tape looping"
+            >
+              LOOP {audioState.isLooping ? 'ON' : 'OFF'}
+            </button>
+
+            <button
+              onClick={handleSpeedCycle}
+              className="border border-[#2a2927] px-3 py-1 text-xs text-[#ebe6dc] rounded-sm hover:border-[#44423e] hover:bg-white/5 font-mono"
+              title="Cycle playback speed"
+            >
+              {audioState.playbackRate}× SPEED
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="space-y-3 text-xs leading-relaxed border-t border-ink/30 pt-4">
-        <p className="font-bold text-[11px] uppercase tracking-wider text-ink">
-          TRANSCRIPTION SUMMARY (SECONDS 00:00 – 00:30):
-        </p>
-        <blockquote className="italic border-l-2 border-crimson pl-3 text-ink/90 font-serif text-sm">
+        <div className="flex items-center justify-between">
+          <p className="font-bold text-[11px] uppercase tracking-wider text-ink">
+            TRANSCRIPTION SUMMARY (SECONDS 00:00 – 00:30):
+          </p>
+          <span className="font-mono text-[10px] text-ink/60 uppercase">
+            {currentSec <= 30 ? 'VOICE CHANNEL ACTIVE' : 'CARRIER PULSE PHASE'}
+          </span>
+        </div>
+        <blockquote className={`italic border-l-2 ${currentSec <= 30 && audioState.isPlaying ? 'border-crimson bg-crimson/5 font-semibold' : 'border-ink/40'} pl-3 text-ink/90 font-serif text-sm transition-colors py-1`}>
           "Four locations. One has been chosen. Three are irrelevant. You have twenty-four hours to tell me
           which one... Choose carefully. One wrong answer. One more name on your list. Tick-tock, detectives."
         </blockquote>
-        <div className="p-3 bg-black/5 border border-ink/20 text-[11px] mt-4">
-          <strong className="text-crimson block mb-1">UNEXPLAINED DURATION (SECONDS 00:30 – 00:47):</strong>
-          Speech terminates abruptly at 30 seconds. The remaining 17 seconds contain low-frequency carrier
-          pulses and rhythmic bursts under acoustic filtering. Forensic analysis is ongoing.
+        <div className={`p-3 border text-[11px] mt-4 transition-colors ${currentSec > 30 && audioState.isPlaying ? 'bg-crimson/10 border-crimson' : 'bg-black/5 border-ink/20'}`}>
+          <strong className="text-crimson block mb-1">UNEXPLAINED DURATION (SECONDS 00:30 – 00:59):</strong>
+          Speech terminates at 30 seconds. The remaining duration contains low-frequency carrier
+          pulses, magnetic tape degradation, and rhythmic frequency bursts under acoustic filtering. Cross-reference with Signal Map telemetry.
         </div>
       </div>
     </div>
@@ -3232,8 +3197,142 @@ Examine margin notations before submitting dossier update to squad 07`}
 }
 
 /* =========================================================================
-   8. SIGNAL MAP (4 In-Game Forensic Locations)
+   8. SIGNAL ROOM & MAP (Forensic Locations & Transmission Intercept)
    ========================================================================= */
+
+function SignalMapAudioMonitor() {
+  const [audioState, setAudioState] = useState<SignalAudioState>(() => signalAudio.getState());
+
+  useEffect(() => {
+    return signalAudio.subscribe((state) => {
+      setAudioState(state);
+    });
+  }, []);
+
+  // Cleanup on unmount of Signal Map
+  useEffect(() => {
+    return () => {
+      signalAudio.cleanup();
+    };
+  }, []);
+
+  const totalDuration = Math.round(audioState.duration) || 59;
+  const currentSec = Math.floor(audioState.currentTime);
+  const progressRatio = totalDuration > 0 ? audioState.currentTime / totalDuration : 0;
+
+  const formatTime = (sec: number) => {
+    const mins = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${mins < 10 ? '0' : ''}${mins}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const handleTogglePlay = async () => {
+    tacticalAudio.playButtonClick();
+    await signalAudio.togglePlayPause('map');
+  };
+
+  const handleToggleMute = () => {
+    tacticalAudio.playButtonClick();
+    signalAudio.toggleMute();
+  };
+
+  return (
+    <div className="p-3 bg-[#111312] border border-[#262c28] text-xs font-mono space-y-2.5 shadow-md my-2">
+      <div className="flex items-center justify-between border-b border-[#202522] pb-1.5">
+        <div className="flex items-center gap-2">
+          <span className={`size-2 rounded-full ${audioState.isPlaying ? 'bg-crimson animate-ping' : 'bg-emerald-500/60'}`} />
+          <span className="text-[#ebe6dc] font-semibold text-[11px] uppercase tracking-wider">
+            SIGNAL ROOM AUDIO MONITOR // EV-0401
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-mono">
+          <span className="text-crimson font-bold">{formatTime(currentSec)}</span>
+          <span>/</span>
+          <span>{formatTime(totalDuration)}</span>
+        </div>
+      </div>
+
+      {/* Mini Interactive Waveform */}
+      <div
+        className="relative h-10 bg-[#080a09] border border-[#1d231f] flex items-end gap-1 p-1.5 cursor-pointer select-none overflow-hidden"
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+          signalAudio.seek(fraction * totalDuration);
+        }}
+        title="Click to seek transmission playback"
+      >
+        {Array.from({ length: 28 }).map((_, i) => {
+          const barFraction = i / 28;
+          const isPassed = barFraction <= progressRatio;
+          const baseAmp = i < 14 ? 30 + ((i * 19) % 60) : 20 + ((i * 13) % 45);
+          const amp = audioState.isPlaying
+            ? Math.max(15, Math.min(100, baseAmp + Math.sin(i * 0.9 + currentSec * 3) * 20))
+            : baseAmp;
+          return (
+            <span
+              key={i}
+              className={`flex-1 rounded-xs transition-all duration-75 ${
+                isPassed ? 'bg-crimson' : 'bg-[#232724]'
+              }`}
+              style={{ height: `${amp}%` }}
+            />
+          );
+        })}
+        <div
+          className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none"
+          style={{ left: `${progressRatio * 100}%` }}
+        />
+      </div>
+
+      {/* Control Buttons Bar */}
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleTogglePlay}
+            className="px-3 py-1 bg-crimson text-white rounded-sm hover:bg-[#b52222] transition-colors flex items-center gap-1.5 text-xs font-semibold"
+            aria-label={audioState.isPlaying ? 'Pause transmission' : 'Play transmission'}
+          >
+            {audioState.isPlaying ? (
+              <>
+                <Pause size={12} />
+                <span>PAUSE</span>
+              </>
+            ) : (
+              <>
+                <Play size={12} fill="currentColor" />
+                <span>PLAY TRANSMISSION</span>
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={handleToggleMute}
+            className={`p-1.5 border rounded-sm transition-colors ${
+              audioState.isMuted
+                ? 'border-crimson text-crimson bg-crimson/10'
+                : 'border-[#262c28] text-muted-foreground hover:text-foreground'
+            }`}
+            aria-label={audioState.isMuted ? 'Unmute signal' : 'Mute signal'}
+            title={audioState.isMuted ? 'Unmute' : 'Mute'}
+          >
+            {audioState.isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+          </button>
+        </div>
+
+        <button
+          onClick={() => navigate('/evidence/EV-0401')}
+          className="text-muted-foreground hover:text-crimson text-[11px] font-mono flex items-center gap-1 transition-colors"
+          title="Inspect full EV-0401 cassette transcript"
+        >
+          <span>Cassette Sheet</span>
+          <ArrowRight size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function SignalMapView({
   progress,
@@ -3247,6 +3346,13 @@ function SignalMapView({
   );
   const [activeFilter, setActiveFilter] = useState<'all' | 'clues' | 'lines'>('all');
   const [isCorrecting, setIsCorrecting] = useState(false);
+
+  // Guarantee clean stop when unmounting Signal Room / Map
+  useEffect(() => {
+    return () => {
+      signalAudio.cleanup();
+    };
+  }, []);
 
   // If Stage 3 Map Gate is locked, render MapSecurityGate first
   if (!progress.mapGateUnlocked && progress.stagesCompleted < 3) {
@@ -3942,6 +4048,9 @@ function SignalMapView({
                   Inspect EV-0401 to verify the vector."
                 </blockquote>
 
+                {/* Direct Signal Transmission Monitor inside Signal Room / Map */}
+                <SignalMapAudioMonitor />
+
                 {hasChosen && !isCorrecting ? (
                   progress.targetChoiceEvaluationStatus === 'revealed' ? (
                     <div className="p-3 bg-[#1e231f] border border-[#2e4333] text-[#8bb393] font-mono text-xs space-y-2">
@@ -4106,8 +4215,6 @@ function MessagesView({
         }
       />
 
-      <DemoBanner />
-
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
           {/* Sequenced Director Lockdown Messages (Stage 6 Freeze) */}
@@ -4220,8 +4327,6 @@ function ProgressView({ progress }: { progress: UserProgress }) {
         description="A complete tracking overview of all seven investigation stages, unlock windows, and completion milestones."
       />
 
-      <DemoBanner />
-
       <div className="grid sm:grid-cols-3 gap-6 mb-8">
         <div className="panel text-center">
           <span className="eyebrow block mb-2">STAGES CLEARED</span>
@@ -4256,30 +4361,45 @@ function ProgressView({ progress }: { progress: UserProgress }) {
 
       <div className="space-y-4">
         {stages.map((st) => {
-          const isCompleted = st.number <= progress.stagesCompleted;
-          const isAvailable = st.number === progress.activeStage && !isCompleted;
-          const isLocked = st.number > progress.activeStage;
+          const displayInfo = getStageDisplayInfo(st.number, progress);
+          const isCompleted = displayInfo.isCompleted;
+          const isAvailable = displayInfo.isActive;
+          const isLocked = !displayInfo.isReleased;
           const state = isCompleted ? 'completed' : isAvailable ? 'available' : 'locked';
 
           return (
             <div
               key={st.number}
-              className="panel flex flex-col md:flex-row md:items-center justify-between gap-4"
+              className={`panel flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                isLocked ? 'opacity-65 bg-[#0e0e0d]' : ''
+              }`}
             >
               <div className="flex items-center gap-4">
                 <span className="font-mono text-2xl text-muted-foreground font-light">
                   {String(st.number).padStart(2, '0')}
                 </span>
                 <div>
-                  <h3 className="font-serif text-xl text-foreground">{st.title}</h3>
-                  <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                    {st.subtitle}
+                  <h3
+                    className={`font-serif text-xl ${
+                      isLocked ? 'text-[#8d8880] italic' : 'text-foreground'
+                    }`}
+                  >
+                    {displayInfo.title}
+                  </h3>
+                  <p
+                    className={`font-mono text-xs uppercase tracking-wider ${
+                      isLocked ? 'text-[#615e58]' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {displayInfo.subtitle}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-6 font-mono text-xs">
                 <span className="text-muted-foreground">{st.date}</span>
-                <span className={`status-pill ${state}`}>{state}</span>
+                <span className={`status-pill ${state}`}>
+                  {isLocked ? 'SIGNAL LOCKED' : state}
+                </span>
               </div>
             </div>
           );
@@ -4309,8 +4429,6 @@ function LeaderboardView({
         title="Investigation Leaderboard"
         description="Public rankings for teams and independent investigators. Official rankings will be awarded live upon event commencement."
       />
-
-      <DemoBanner message="Standings below illustrate the scoring layout. Real scores will be authoritative once the Supabase backend is linked on launch day." />
 
       <div className="flex gap-4 border-b border-border pb-4 mb-6">
         <button
@@ -4415,8 +4533,6 @@ function TeamView({
         title="Your Team Dossier"
         description="Students may investigate solo or form a team of up to five operatives. Team members share stage clearance and location submissions."
       />
-
-      <DemoBanner />
 
       {progress.teamName ? (
         <div className="grid gap-8 lg:grid-cols-3">
@@ -4586,8 +4702,6 @@ function AccountView({
         title="Account &amp; Safety"
         description="Review your registered operative identification, privacy protections, and safety controls."
       />
-
-      <DemoBanner />
 
       <div className="grid gap-8 lg:grid-cols-2">
         {/* Profile Card */}
@@ -4862,441 +4976,9 @@ function AdminView({
   progress?: UserProgress;
   onUpdateProgress?: (updater: (prev: UserProgress) => UserProgress) => void;
 }) {
-  const [unlocked, setUnlocked] = useState(false);
-  const [passcode, setPasscode] = useState('');
-  const [error, setError] = useState('');
-  const [adminTab, setAdminTab] = useState<'overview' | 'targets' | 'schedule' | 'challenges' | 'audit'>('overview');
-
-  const handleUnlock = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (passcode.trim() === 'staff2026' || passcode.trim() === 'owner') {
-      setUnlocked(true);
-      setError('');
-    } else {
-      setError('Invalid staff passkey. Access restricted to verified event organizers.');
-    }
-  };
-
-  const handleTargetOverride = (targetSite: number) => {
-    if (!onUpdateProgress || !progress) return;
-    const nowIso = new Date().toISOString();
-    const prevSite = progress.targetLocationChoice;
-    const auditEntry = {
-      id: `aud_${Date.now()}`,
-      action: 'ORGANIZER_TARGET_OVERRIDE',
-      timestamp: nowIso,
-      detail: `Staff organizer overrode target candidate from Site 0${prevSite ?? 'None'} to Site 0${targetSite} for operative ${progress.callSign}.`,
-      targetCallSign: progress.callSign,
-      previousValue: prevSite ? `Site 0${prevSite}` : 'None',
-      newValue: `Site 0${targetSite}`,
-    };
-
-    onUpdateProgress((prev) => ({
-      ...prev,
-      targetLocationChoice: targetSite,
-      targetChoiceLocked: true,
-      organizerAuditLog: [auditEntry, ...(prev.organizerAuditLog || [])],
-    }));
-  };
-
-  const handleResetCorrectionAllowance = () => {
-    if (!onUpdateProgress || !progress) return;
-    const nowIso = new Date().toISOString();
-    const auditEntry = {
-      id: `aud_${Date.now()}`,
-      action: 'ORGANIZER_RESET_CORRECTION_ALLOWANCE',
-      timestamp: nowIso,
-      detail: `Staff organizer reset single player correction allowance for operative ${progress.callSign}.`,
-      targetCallSign: progress.callSign,
-    };
-
-    onUpdateProgress((prev) => ({
-      ...prev,
-      targetLocationCorrectionUsed: false,
-      organizerAuditLog: [auditEntry, ...(prev.organizerAuditLog || [])],
-    }));
-  };
-
-  if (!unlocked) {
-    return (
-      <div className="panel max-w-md mx-auto text-center p-8 space-y-4">
-        <Lock size={32} className="text-crimson mx-auto" />
-        <h2 className="font-serif text-2xl font-light text-foreground">
-          Restricted Staff Console
-        </h2>
-        <p className="font-mono text-xs text-muted-foreground leading-relaxed">
-          This administration surface is restricted to event organizers. Students are prohibited from
-          accessing management controls.
-        </p>
-
-        {error && <div className="form-error text-left">{error}</div>}
-
-        <form onSubmit={handleUnlock} className="space-y-3 pt-2">
-          <input
-            type="password"
-            placeholder="Enter staff authorization key..."
-            value={passcode}
-            onChange={(e) => setPasscode(e.target.value)}
-            className="w-full bg-[#111110] border border-border p-2 font-mono text-xs text-foreground focus:outline-none focus:border-crimson"
-          />
-          <button type="submit" className="button button-primary w-full">
-            Authorize Console (Demo: staff2026)
-          </button>
-        </form>
-      </div>
-    );
+  if (!progress || !onUpdateProgress) {
+    return null;
   }
-
-  return (
-    <>
-      <PageHeader
-        eyebrow="Restricted Access / Event Staff"
-        title="Control Console"
-        description="Administrative management surface for stage windows, answer hashes, and participant accounts."
-        action={
-          <span className="status-pill restricted">
-            <Lock size={12} /> Staff Authenticated
-          </span>
-        }
-      />
-
-      <DemoBanner message="Notice: Prototype client environment. Live administrative mutations (schedule changes, score overrides, account bans) require authoritative execution via PostgreSQL security definer functions in Supabase." />
-
-      <div className="flex flex-wrap gap-4 border-b border-border pb-4 mb-6">
-        <button
-          onClick={() => setAdminTab('overview')}
-          className={`font-mono text-xs uppercase tracking-widest ${
-            adminTab === 'overview'
-              ? 'text-foreground underline decoration-crimson decoration-2 underline-offset-8'
-              : 'text-muted-foreground'
-          }`}
-        >
-          Event Overview
-        </button>
-        <button
-          onClick={() => setAdminTab('targets')}
-          className={`font-mono text-xs uppercase tracking-widest ${
-            adminTab === 'targets'
-              ? 'text-foreground underline decoration-crimson decoration-2 underline-offset-8'
-              : 'text-muted-foreground'
-          }`}
-        >
-          Target Overrides &amp; Choices
-        </button>
-        <button
-          onClick={() => setAdminTab('schedule')}
-          className={`font-mono text-xs uppercase tracking-widest ${
-            adminTab === 'schedule'
-              ? 'text-foreground underline decoration-crimson decoration-2 underline-offset-8'
-              : 'text-muted-foreground'
-          }`}
-        >
-          Schedule &amp; Timers (IST)
-        </button>
-        <button
-          onClick={() => setAdminTab('challenges')}
-          className={`font-mono text-xs uppercase tracking-widest ${
-            adminTab === 'challenges'
-              ? 'text-foreground underline decoration-crimson decoration-2 underline-offset-8'
-              : 'text-muted-foreground'
-          }`}
-        >
-          Challenge Hashes
-        </button>
-        <button
-          onClick={() => setAdminTab('audit')}
-          className={`font-mono text-xs uppercase tracking-widest ${
-            adminTab === 'audit'
-              ? 'text-foreground underline decoration-crimson decoration-2 underline-offset-8'
-              : 'text-muted-foreground'
-          }`}
-        >
-          Audit Stream ({progress?.organizerAuditLog?.length ?? 0})
-        </button>
-      </div>
-
-      {adminTab === 'overview' && (
-        <>
-          <div className="grid gap-6 sm:grid-cols-3 mb-8">
-            <div className="panel">
-              <span className="eyebrow block">REGISTERED PROTOTYPE OPERATIVES</span>
-              <span className="font-mono text-3xl text-foreground font-light">
-                {localStorage.getItem('tls_prototype_users_v1')
-                  ? JSON.parse(localStorage.getItem('tls_prototype_users_v1')!).length
-                  : 0}
-              </span>
-            </div>
-            <div className="panel">
-              <span className="eyebrow block">STAGE PROGRESSION</span>
-              <span className="font-mono text-3xl text-foreground font-light">
-                Stage 0{progress?.activeStage ?? 1}
-              </span>
-            </div>
-            <div className="panel">
-              <span className="eyebrow block">SERVER CONTRACT</span>
-              <span className="font-mono text-sm text-[#8bb393] block mt-2">
-                case17_migration.sql ready
-              </span>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="panel-heading">
-              <span>EVENT HEALTH &amp; MODULE CHECKLIST</span>
-              <Settings size={14} />
-            </div>
-            <div className="space-y-3 font-mono text-xs">
-              {[
-                ['Registration & School Class Whitelist', 'Prototype local storage active'],
-                ['Row-Level Security Policies', 'Defined in case17_migration.sql'],
-                ['Evidence Storage Bucket (Private)', 'Configured for authenticated signed-URL access'],
-                ['Location Choice 1-Time Correction', 'Active with IST deadline enforcement'],
-                ['Stage 05 Suspect Vault (Z408_REOPENED)', 'Active & verified'],
-                ['Stage 06 Controlled Story Freeze', 'Active with persistent state'],
-              ].map(([task, state]) => (
-                <div key={task} className="flex justify-between items-center p-3 bg-[#111110] border border-border">
-                  <div className="flex items-center gap-2">
-                    <Check size={14} className="text-[#8bb393]" />
-                    <span className="text-foreground">{task}</span>
-                  </div>
-                  <span className="text-muted-foreground text-[10px] uppercase">{state}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {adminTab === 'targets' && (
-        <div className="panel space-y-6 font-mono text-xs">
-          <div className="panel-heading">
-            <span>ORGANIZER TARGET CANDIDATE OVERRIDE CONSOLE</span>
-            <ShieldAlert size={14} className="text-crimson" />
-          </div>
-
-          <div className="p-3 bg-[#131614] border border-[#232c25] text-[11px] text-[#b8cbbd] space-y-1">
-            <strong className="text-foreground block uppercase">Investigator Target Correction Rules:</strong>
-            <p className="m-0 leading-relaxed">
-              Players are granted exactly ONE self-service target correction prior to the Stage 04 scoring
-              deadline. As an organizer, you may manually override any operative's candidate site or reset
-              their correction allowance. All overrides write directly to the audit log.
-            </p>
-          </div>
-
-          {progress && (
-            <div className="p-4 bg-[#111110] border border-border space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-                <div>
-                  <span className="text-[10px] uppercase text-muted-foreground block">Active Operative Session:</span>
-                  <strong className="text-base text-foreground font-bold">{progress.callSign}</strong>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] uppercase text-muted-foreground block">Current Target Choice:</span>
-                  <span className="px-2 py-0.5 border border-crimson text-crimson font-bold text-xs">
-                    {progress.targetLocationChoice ? `Site 0${progress.targetLocationChoice}` : 'Unselected'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4 text-[11px]">
-                <div className="p-3 bg-[#171918] border border-border">
-                  <span className="text-[10px] text-muted-foreground block uppercase">Lock Status</span>
-                  <strong>{progress.targetChoiceLocked ? 'Locked' : 'Open / Unconfirmed'}</strong>
-                </div>
-                <div className="p-3 bg-[#171918] border border-border">
-                  <span className="text-[10px] text-muted-foreground block uppercase">Player Correction Used</span>
-                  <strong>{progress.targetLocationCorrectionUsed ? 'Yes (Utilized)' : 'No (1 Remaining)'}</strong>
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-2">
-                <span className="text-[11px] font-bold text-foreground block uppercase">
-                  Staff Target Override Action:
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: 1, name: 'Site 01: Lake Herman' },
-                    { id: 2, name: 'Site 02: Blue Rock' },
-                    { id: 3, name: 'Site 03: Berryessa' },
-                    { id: 4, name: 'Site 04: Washington & Cherry (Correct)' },
-                  ].map((site) => (
-                    <button
-                      key={site.id}
-                      onClick={() => handleTargetOverride(site.id)}
-                      className={`p-2 border text-left text-[11px] transition-all ${
-                        progress.targetLocationChoice === site.id
-                          ? 'border-crimson bg-red-950/40 text-foreground font-bold'
-                          : 'border-border bg-[#141514] text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {site.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <button
-                  onClick={handleResetCorrectionAllowance}
-                  className="button button-secondary text-xs"
-                >
-                  Reset Player Correction Allowance (Allow 1 More)
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {adminTab === 'schedule' && (
-        <div className="space-y-6">
-          <ISTClockWidget activeStageNumber={progress?.activeStage ?? 1} variant="detailed" />
-
-          <div className="panel space-y-4 font-mono text-xs">
-            <div className="panel-heading">
-              <span>CANONICAL EVENT SCHEDULE &amp; SCORING FORMULAS (IST)</span>
-              <Clock3 size={14} />
-            </div>
-
-            <div className="p-3 bg-[#141815] border border-[#213025] text-[11px] text-[#b8d1c0] leading-relaxed space-y-1">
-              <strong className="text-foreground block">Scoring Engine Specification:</strong>
-              <p className="m-0">
-                Base 100 points per solve + hourly bonus of +1 pt/hr capped at 24 pts (max 124 pts/stage).
-                Solves submitted after the official IST deadline award 0 competitive points (story progression only).
-              </p>
-            </div>
-
-            <div className="border border-border overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse font-mono">
-                <thead>
-                  <tr className="bg-[#141715] border-b border-border text-[10px] uppercase text-muted-foreground">
-                    <th className="p-2.5">Stage</th>
-                    <th className="p-2.5">Title</th>
-                    <th className="p-2.5">Open Window (IST)</th>
-                    <th className="p-2.5">Scoring Deadline (IST)</th>
-                    <th className="p-2.5">Base</th>
-                    <th className="p-2.5">Max Bonus</th>
-                    <th className="p-2.5 text-right">Max Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {STAGE_SCHEDULE.map((st) => (
-                    <tr key={st.number} className="hover:bg-white/5">
-                      <td className="p-2.5 font-bold">0{st.number}</td>
-                      <td className="p-2.5">{st.title}</td>
-                      <td className="p-2.5 text-muted-foreground">{st.openDateIST}</td>
-                      <td className="p-2.5 text-foreground font-semibold">{st.deadlineIST}</td>
-                      <td className="p-2.5">{st.basePoints} pts</td>
-                      <td className="p-2.5 text-emerald-400">+{st.maxHourlyBonus} pts</td>
-                      <td className="p-2.5 text-right font-bold text-crimson">
-                        {st.maxTotalScore} pts
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {adminTab === 'challenges' && (
-        <div className="panel space-y-4 font-mono text-xs">
-          <div className="panel-heading">
-            <span>PROTECTED PUZZLE KEYS (MASKED)</span>
-            <Lock size={14} />
-          </div>
-          <p className="text-muted-foreground">
-            Plaintext answers and hashes are never exposed in client bundles. Values below illustrate
-            server validation parameters:
-          </p>
-          <div className="divide-y divide-border border-t border-border mt-4">
-            {[
-              ['gate_zk_login', 'Stage 01 Login (Z-K case / case-17)', 'Salted SHA-256 (Masked)', 'norm_mode: text'],
-              ['gate_map', 'Stage 03 Map Gate (House 3893)', 'Salted SHA-256 (Masked)', 'norm_mode: text'],
-              ['gate_audio', 'Stage 04 Reverse Audio (Site 04)', 'Salted SHA-256 (Masked)', 'norm_mode: coords'],
-              ['gate_suspect_db', 'Stage 05 Database Key (Z408_REOPENED)', 'Salted SHA-256 (Masked)', 'norm_mode: text'],
-            ].map(([key, label, hash, norm]) => (
-              <div key={key} className="py-2.5 flex justify-between items-center">
-                <div>
-                  <strong className="block text-foreground">{label}</strong>
-                  <span className="text-[10px] text-muted-foreground">
-                    {key} · {norm}
-                  </span>
-                </div>
-                <span className="text-crimson font-mono text-[10px]">{hash}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-border">
-            <h4 className="text-foreground font-semibold mb-2 flex items-center gap-2">
-              <span className="size-2 rounded-full bg-crimson" />
-              <span>CRYPTOGRAPHIC TECHNICAL AUDIT: EXORCIST MEMORANDUM 74-03-B</span>
-            </h4>
-            <div className="p-3 bg-[#111110] border border-border space-y-2 text-[11px] leading-relaxed text-muted-foreground">
-              <p className="m-0">
-                <strong className="text-foreground">Caesar Shift Verification:</strong> Automated analysis across all 25 modular shifts confirms interior text is not a simple shift cipher.
-              </p>
-              <p className="m-0">
-                <strong className="text-foreground">Authentic Solution Mechanism:</strong> The puzzle is a classical double acrostic (telestich):
-              </p>
-              <div className="p-2 bg-[#0a0a09] border border-[#242422] font-mono text-[10px] text-[#ebe6dc]">
-                <div>Line 1: <span className="text-crimson font-bold">Z</span>odiac correspondence cross-referenced with precinct log book <span className="text-emerald-400 font-bold">c</span></div>
-                <div>Line 2: <span className="text-crimson font-bold">K</span>ey records from the October file appear altered in the annex are<span className="text-emerald-400 font-bold">a</span></div>
-                <div>Line 3: <span className="text-crimson font-bold">C</span>heck the typewriter alignment on the original carbon studie<span className="text-emerald-400 font-bold">s</span></div>
-                <div>Line 4: <span className="text-crimson font-bold">A</span>ll inquiries regarding Vault B require senior supervisor guidanc<span className="text-emerald-400 font-bold">e</span></div>
-                <div>Line 5: <span className="text-crimson font-bold">S</span>hift logs confirm missing negatives from storage locker bay 0<span className="text-emerald-400 font-bold">1</span></div>
-                <div>Line 6: <span className="text-crimson font-bold">E</span>xamine margin notations before submitting dossier update to squad 0<span className="text-emerald-400 font-bold">7</span></div>
-                <div className="mt-1.5 pt-1.5 border-t border-line-soft text-[#8bb393]">
-                  Vertical starts: <span className="font-bold text-foreground">zkcase</span> | Vertical ends: <span className="font-bold text-foreground">case17</span>
-                </div>
-              </div>
-              <p className="m-0 text-[10px]">
-                No plaintext solutions are exposed on player-facing sheets. Players discover this through visual inspection.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {adminTab === 'audit' && (
-        <div className="panel space-y-3 font-mono text-xs">
-          <div className="panel-heading">
-            <span>PRIVILEGED AUDIT TRAIL</span>
-            <Activity size={14} />
-          </div>
-          <div className="space-y-2 text-[11px] text-muted-foreground">
-            {progress?.organizerAuditLog && progress.organizerAuditLog.length > 0 ? (
-              progress.organizerAuditLog.map((log) => (
-                <div key={log.id} className="p-2.5 bg-[#141715] border border-[#233126] flex justify-between items-center text-[#dcd6c9]">
-                  <div>
-                    <strong className="text-crimson block font-bold">{log.action}</strong>
-                    <span className="text-[10px] text-muted-foreground">{log.detail}</span>
-                  </div>
-                  <span className="text-[10px] text-muted-foreground shrink-0 ml-3">
-                    {formatToIST(log.timestamp)}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="text-muted-foreground m-0 p-2 italic">No organizer overrides recorded in this browser session.</p>
-            )}
-            <div className="p-2 bg-[#111110] border border-border flex justify-between">
-              <span>audit.stage_open · Stage 01 window opened automatically</span>
-              <span>01 Nov 00:00 IST</span>
-            </div>
-            <div className="p-2 bg-[#111110] border border-border flex justify-between">
-              <span>audit.evidence_verify · File CAS-017 passed verification</span>
-              <span>26 Oct 08:12 IST</span>
-            </div>
-            <div className="p-2 bg-[#111110] border border-border flex justify-between">
-              <span>audit.system_init · Static schema case17_migration validated</span>
-              <span>26 Oct IST</span>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
+  return <StaffRoomView progress={progress} onUpdateProgress={onUpdateProgress} />;
 }
+

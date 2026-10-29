@@ -321,7 +321,7 @@ export function SuspectDatabaseView({
                     value={passphraseInput}
                     onChange={(e) => setPassphraseInput(e.target.value)}
                     onKeyDown={() => tacticalAudio.playKeypress()}
-                    placeholder="Enter case passphrase (e.g. Z408_REOPENED)..."
+                    placeholder="Enter case authorization passphrase..."
                     className="flex-1 bg-[#020503] border-2 border-[#1e4827] text-[#a2ffb8] p-3 text-sm focus:outline-none focus:border-emerald-400 font-mono tracking-wider"
                     disabled={isProcessing}
                     autoFocus

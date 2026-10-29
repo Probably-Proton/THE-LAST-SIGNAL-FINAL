@@ -25,6 +25,161 @@ export interface StageScheduleConfig {
 }
 
 /**
+ * =========================================================================
+ * CANONICAL COMPETITION TIMELINE (Asia/Kolkata / IST / UTC+05:30)
+ * =========================================================================
+ * Centralized configuration location for registration opening and official
+ * game launch across the entire application.
+ */
+export const REGISTRATION_OPEN_ISO = '2026-10-30T00:00:00+05:30';
+export const REGISTRATION_OPEN_IST = '30 Oct 2026, 00:00:00 IST';
+
+export const GAME_LAUNCH_ISO = '2026-11-01T00:00:00+05:30';
+export const GAME_LAUNCH_IST = '01 Nov 2026, 00:00:00 IST';
+
+/**
+ * Master gate control for timeline blocking enforcement.
+ * Set to false to disable blocking effect while preserving all timing
+ * and launch-screen implementation in the codebase for later use.
+ */
+export const ENABLE_TIMELINE_GATES = false;
+
+/**
+ * Check whether investigator registration has officially opened in IST.
+ */
+export function isRegistrationOpen(referenceTime = new Date()): boolean {
+  if (!ENABLE_TIMELINE_GATES) return true;
+  return referenceTime.getTime() >= new Date(REGISTRATION_OPEN_ISO).getTime();
+}
+
+/**
+ * Check whether the main game investigation has officially launched in IST.
+ */
+export function isGameLaunched(referenceTime = new Date()): boolean {
+  if (!ENABLE_TIMELINE_GATES) return true;
+  return referenceTime.getTime() >= new Date(GAME_LAUNCH_ISO).getTime();
+}
+
+export interface StageDisplayInfo {
+  number: number;
+  title: string;
+  subtitle: string;
+  isReleased: boolean;
+  isCompleted: boolean;
+  isActive: boolean;
+  isLocked: boolean;
+  statusLabel: 'CLEARED' | 'ACTIVE' | 'SIGNAL LOCKED';
+  scheduleDateIST: string;
+  deadlineIST: string;
+  badgeText: string;
+}
+
+/**
+ * Determine stage release state and return release-aware presentation metadata.
+ * Released stages display their genuine title and case subtitle.
+ * Unreleased stages display neutral "SIGNAL LOCKED" badges without exposing
+ * upcoming story names, challenge content, or narrative summaries.
+ */
+export function getStageDisplayInfo(
+  stageNumber: number,
+  progress?: { activeStage?: number; stagesCompleted?: number } | null,
+  referenceTime = new Date()
+): StageDisplayInfo {
+  const stage = STAGE_SCHEDULE.find((s) => s.number === stageNumber);
+  const activeStage = progress?.activeStage ?? 1;
+  const stagesCompleted = progress?.stagesCompleted ?? 0;
+
+  const isCompleted = stageNumber <= stagesCompleted;
+  const isActive = stageNumber === activeStage && !isCompleted;
+  const isLocked = stageNumber > activeStage;
+
+  // A stage is considered released if the investigator has unlocked it via progress,
+  // or if its official timetable release timestamp has arrived.
+  const scheduleReleaseReached =
+    stage !== undefined && referenceTime.getTime() >= new Date(stage.openIso).getTime();
+
+  const isReleased = isCompleted || isActive || Boolean(scheduleReleaseReached);
+
+  const realTitle = stage?.title ?? `Stage 0${stageNumber}`;
+  const realSubtitle = stage?.subtitle ?? `Case Sector 0${stageNumber}`;
+
+  return {
+    number: stageNumber,
+    // Conceal titles & subtitles for unreleased stages
+    title: isReleased ? realTitle : 'SIGNAL LOCKED',
+    subtitle: isReleased
+      ? realSubtitle
+      : 'Archival transmission encrypted · Content sealed until wave release',
+    isReleased,
+    isCompleted,
+    isActive,
+    isLocked,
+    statusLabel: isCompleted
+      ? 'CLEARED'
+      : isActive
+      ? 'ACTIVE'
+      : 'SIGNAL LOCKED',
+    scheduleDateIST: stage?.openDateIST ?? '',
+    deadlineIST: stage?.deadlineIST ?? '',
+    badgeText: isCompleted
+      ? 'CLEARED'
+      : isActive
+      ? `STAGE 0${stageNumber} ACTIVE`
+      : 'LOCKED',
+  };
+}
+
+export interface CountdownBreakdown {
+  msRemaining: number;
+  totalSeconds: number;
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  isComplete: boolean;
+  formatted: string;
+}
+
+/**
+ * Compute drift-free countdown breakdown against an authoritative ISO timestamp.
+ */
+export function getCountdownBreakdown(
+  targetIso: string,
+  referenceTime = new Date()
+): CountdownBreakdown {
+  const target = new Date(targetIso).getTime();
+  const current = referenceTime.getTime();
+  const msRemaining = Math.max(0, target - current);
+  const totalSeconds = Math.floor(msRemaining / 1000);
+  const isComplete = msRemaining <= 0;
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  let formatted = '';
+  if (isComplete) {
+    formatted = '00:00:00';
+  } else if (days > 0) {
+    formatted = `${days}d ${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  } else {
+    formatted = `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+  }
+
+  return {
+    msRemaining,
+    totalSeconds,
+    days,
+    hours,
+    minutes,
+    seconds,
+    isComplete,
+    formatted,
+  };
+}
+
+/**
  * Official Case 17 Timetable (IST / UTC+05:30)
  * Note: Launch dates are scheduled for the official competition window.
  * Prototype investigators can solve ahead or test deadlines.
@@ -93,8 +248,8 @@ export const STAGE_SCHEDULE: StageScheduleConfig[] = [
   },
   {
     number: 6,
-    title: 'The Vale Notebook',
-    subtitle: 'Research journal & 16mm reel',
+    title: 'The Record That Remembered Tomorrow',
+    subtitle: 'Incident Report 06-B & Archival Revision Paradox',
     openDateIST: '2026-11-11 00:00 IST',
     deadlineIST: '2026-11-13 23:59 IST',
     openIso: '2026-11-11T00:00:00+05:30',
@@ -105,8 +260,8 @@ export const STAGE_SCHEDULE: StageScheduleConfig[] = [
   },
   {
     number: 7,
-    title: 'The Final Dispatch',
-    subtitle: 'Station incident & case closure',
+    title: "Ellen Vale's Journal and the Final Review",
+    subtitle: 'Research journal, 16mm reel & station incident',
     openDateIST: '2026-11-13 00:00 IST',
     deadlineIST: '2026-11-15 23:59 IST',
     openIso: '2026-11-13T00:00:00+05:30',

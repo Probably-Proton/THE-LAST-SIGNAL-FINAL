@@ -551,65 +551,453 @@ export function SuspectDossierGaikowskiDoc({ item }: { item: EvidenceItem }) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. EV-0601: RESEARCH JOURNAL OF ELLEN VALE (DOC-JRN-74-06)
+// 8. EV-0601 / EV-0602: THE RECORD THAT REMEMBERED TOMORROW (STAGE 6)
+// ---------------------------------------------------------------------------
+export function RecordRememberedTomorrowDoc({
+  item,
+  progress,
+  onUpdateProgress,
+  onAdvanceToStage7,
+}: {
+  item: EvidenceItem;
+  progress?: import('@/src/lib/prototypeAuth').UserProgress;
+  onUpdateProgress?: (updater: (prev: import('@/src/lib/prototypeAuth').UserProgress) => import('@/src/lib/prototypeAuth').UserProgress) => void;
+  onAdvanceToStage7?: () => void;
+}) {
+  const [activeTab, setActiveTab] = React.useState<'incident' | 'torn_note' | 'revision_log' | 'archive_access'>(
+    item.id === 'EV-0602' ? 'revision_log' : 'incident'
+  );
+  const [passwordInput, setPasswordInput] = React.useState('');
+  const [isEvaluating, setIsEvaluating] = React.useState(false);
+  const [authError, setAuthError] = React.useState<string | null>(null);
+
+  const isStage6Cleared = (progress?.stagesCompleted ?? 0) >= 6 || progress?.solvedChallengeKeys?.includes('stage6_record_tomorrow');
+
+  const handleVerifyPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = passwordInput.trim().toUpperCase();
+    if (!clean) return;
+
+    setIsEvaluating(true);
+    setAuthError(null);
+
+    setTimeout(() => {
+      setIsEvaluating(false);
+      if (clean === 'EV1971') {
+        if (onUpdateProgress) {
+          onUpdateProgress((prev) => {
+            const alreadyCleared = (prev.stagesCompleted ?? 0) >= 6;
+            const solveTime = new Date().toISOString();
+            return {
+              ...prev,
+              stagesCompleted: Math.max(prev.stagesCompleted, 6),
+              activeStage: Math.max(prev.activeStage, 7),
+              unlockedEvidenceIds: Array.from(new Set([...prev.unlockedEvidenceIds, 'EV-0601', 'EV-0602', 'EV-0701', 'EV-0702'])),
+              solvedChallengeKeys: Array.from(new Set([...prev.solvedChallengeKeys, 'stage6_record_tomorrow'])),
+              score: alreadyCleared ? prev.score : prev.score + 100,
+              stageSolveTimestamps: {
+                ...prev.stageSolveTimestamps,
+                6: solveTime,
+              },
+            };
+          });
+        }
+      } else {
+        setAuthError('INVALID ARCHIVE PASSWORD. Inspect the initials on the torn note and the date referenced in the incident report.');
+      }
+    }, 450);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Director Opening Message Dispatch Banner */}
+      <div className="bg-[#15120e] border border-[#3e3427] p-5 shadow-lg font-mono text-xs text-[#dcd6c9] space-y-3">
+        <div className="flex items-center justify-between border-b border-[#312a20] pb-2 text-[11px]">
+          <span className="text-amber-400 font-bold tracking-widest flex items-center gap-2">
+            <Radio size={14} className="text-amber-400 animate-pulse" />
+            DIRECTOR DISPATCH // 02:13 AM
+          </span>
+          <span className="text-muted-foreground uppercase text-[10px]">CASE {CASE_ID} // STAGE 06</span>
+        </div>
+        <div className="font-serif text-sm leading-relaxed text-[#eae4d8] space-y-2 italic">
+          <p>"Daniel Mercer was not the only person who noticed the alterations."</p>
+          <p>"Someone contacted us last night claiming to have another copy of the records Daniel was investigating. We were supposed to meet them today. They never arrived."</p>
+          <p>"The police have recovered a folder from their room. I have uploaded its contents. One thing bothers me. The final page is dated tomorrow."</p>
+          <p className="font-sans not-italic text-xs text-amber-300 font-medium">
+            Please examine the documents carefully. Do not assume that everything in this folder was written when its timestamp says it was.
+          </p>
+        </div>
+      </div>
+
+      {/* Document Tab Selector */}
+      <div className="flex flex-wrap gap-2 border-b border-border pb-3 font-mono text-xs">
+        <button
+          onClick={() => setActiveTab('incident')}
+          className={`px-3 py-1.5 border transition-all ${
+            activeTab === 'incident'
+              ? 'bg-[#2b1f14] border-amber-600/70 text-amber-300 font-bold'
+              : 'bg-[#141413] border-border text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Doc A: Incident Report 06-B
+        </button>
+        <button
+          onClick={() => setActiveTab('torn_note')}
+          className={`px-3 py-1.5 border transition-all ${
+            activeTab === 'torn_note'
+              ? 'bg-[#2b1f14] border-amber-600/70 text-amber-300 font-bold'
+              : 'bg-[#141413] border-border text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Doc B: The Torn Note
+        </button>
+        <button
+          onClick={() => setActiveTab('revision_log')}
+          className={`px-3 py-1.5 border transition-all ${
+            activeTab === 'revision_log'
+              ? 'bg-[#2b1f14] border-amber-600/70 text-amber-300 font-bold'
+              : 'bg-[#141413] border-border text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Doc C: Archival Revision Log
+        </button>
+        <button
+          onClick={() => setActiveTab('archive_access')}
+          className={`px-3 py-1.5 border transition-all ${
+            activeTab === 'archive_access'
+              ? 'bg-[#223526] border-emerald-600/70 text-emerald-300 font-bold'
+              : 'bg-[#141413] border-border text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          ARCHIVE_ACCESS.txt
+        </button>
+      </div>
+
+      {/* Tab 1: Incident Report 06-B */}
+      {activeTab === 'incident' && (
+        <div className="paper-sheet p-8 md:p-12 relative text-ink font-serif text-sm leading-relaxed space-y-6">
+          <div className="flex items-start justify-between border-b-2 border-ink pb-4 font-mono">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-ink/70 font-bold">
+                FICTIONAL CASE DOCUMENT • STAGE 6 // REF: INC-06-B
+              </p>
+              <h2 className="font-serif text-2xl font-bold text-ink mt-0.5">
+                Incident Report 06-B — Presidio Vicinity Locked Room
+              </h2>
+              <p className="text-[10px] text-ink/60 mt-0.5">
+                DATE RECOVERED: 29 OCTOBER 2026 // SFPD SPECIAL INQUIRIES
+              </p>
+            </div>
+            <span className="stamp text-crimson border-crimson text-xs font-mono">CONFIDENTIAL FILE</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 font-mono text-xs border-b border-ink/30 pb-4">
+            <div>
+              <span className="text-[9px] uppercase text-ink/60 block">SUBJECT:</span>
+              <strong>Unidentified source connected to Daniel Mercer investigation</strong>
+            </div>
+            <div>
+              <span className="text-[9px] uppercase text-ink/60 block">STATUS:</span>
+              <strong className="text-crimson">Deceased; circumstances under investigation</strong>
+            </div>
+          </div>
+
+          <div className="space-y-3 font-serif text-sm">
+            <p>
+              An individual who had recently contacted investigators regarding altered archival records was found dead in a locked room. No clear sign of forced entry was reported. Several papers relating to the Daniel Mercer investigation were found spread across the desk.
+            </p>
+            <p>
+              Investigators recovered a torn note, a photograph, and a handwritten page. The individual's identity and the circumstances surrounding the death remain unconfirmed.
+            </p>
+            <div className="p-4 bg-[#ede4d6] border-l-4 border-amber-700 font-mono text-xs leading-relaxed">
+              <strong className="text-amber-950 uppercase block mb-1">ADDITIONAL FORENSIC OBSERVATION:</strong>
+              The recovered papers include a direct reference to a classified repository document dated <strong>October 1971</strong>. No official explanation for this chronological reference has been established in active SFPD indices.
+            </div>
+          </div>
+
+          <div className="mt-8 pt-3 border-t border-ink/40 flex justify-between font-mono text-[10px] text-ink/60 uppercase">
+            <span>SFPD HOMICIDE DETAIL // CASE 17 INTAKE</span>
+            <span>EVIDENCE REF: EV-0601</span>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: The Torn Note */}
+      {activeTab === 'torn_note' && (
+        <div className="paper-sheet p-8 md:p-12 relative text-ink font-serif text-sm leading-relaxed space-y-6">
+          <div className="flex items-start justify-between border-b-2 border-ink pb-4 font-mono">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-ink/70 font-bold">
+                PHYSICAL EVIDENCE // DESK RECOVERY
+              </p>
+              <h2 className="font-serif text-2xl font-bold text-ink mt-0.5">
+                The Torn Note
+              </h2>
+              <p className="text-[10px] text-ink/60 mt-0.5">
+                RECOVERED FROM LOCKED ROOM DESK // CASE 17
+              </p>
+            </div>
+            <span className="stamp text-amber-800 border-amber-800 text-xs font-mono">RECOVERED FRAGMENT</span>
+          </div>
+
+          <div className="my-8 p-8 bg-[#fdfaf3] border border-[#d6ccb8] shadow-inner font-['Caveat'] text-2xl text-[#2a2622] leading-relaxed relative">
+            <p className="mb-4">
+              "Mercer was right. The records were changed, but not all the copies were changed."
+            </p>
+            <p className="mb-4">
+              "I found the older version."
+            </p>
+            <p className="mb-4">
+              "The answer is not in the names. It is in the dates."
+            </p>
+            <p className="mb-6">
+              "Read what remains. Then look where the record ends."
+            </p>
+            <p className="text-right text-3xl font-bold text-crimson tracking-wider">
+              — E.V.
+            </p>
+          </div>
+
+          <p className="font-mono text-xs text-ink/75 leading-relaxed">
+            Forensic note: The handwriting on this note matches historical research files deposited in Archival Vault B during the early 1970s.
+          </p>
+
+          <div className="mt-8 pt-3 border-t border-ink/40 flex justify-between font-mono text-[10px] text-ink/60 uppercase">
+            <span>CHAIN OF CUSTODY: EVIDENCE BAG #06-B</span>
+            <span>INITIALS CONFIRMED: E.V.</span>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Archival Revision Log & Unsent Message */}
+      {activeTab === 'revision_log' && (
+        <div className="paper-sheet p-8 md:p-12 relative text-ink font-serif text-sm leading-relaxed space-y-6">
+          <div className="flex items-start justify-between border-b-2 border-ink pb-4 font-mono">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-ink/70 font-bold">
+                AUDIT LOG COMPARISON // REGIONAL REPOSITORY
+              </p>
+              <h2 className="font-serif text-2xl font-bold text-ink mt-0.5">
+                The Record That Remembered Tomorrow
+              </h2>
+              <p className="text-[10px] text-ink/60 mt-0.5">
+                COMPARATIVE DOCKET ANALYSIS // HISTORICAL CHRONOLOGY AUDIT
+              </p>
+            </div>
+            <span className="stamp text-crimson border-crimson text-xs font-mono">TIMELINE PARADOX</span>
+          </div>
+
+          <div className="space-y-4 font-mono text-xs">
+            <div className="p-4 bg-[#efe7da] border border-[#d3c7b2] space-y-2">
+              <span className="text-[10px] uppercase text-ink/70 font-bold block">
+                UNSENT TELETYPE MEMORANDUM FRAGMENT (DESK DRAFT):
+              </span>
+              <p className="font-serif text-sm text-ink/90 italic">
+                "TO: REGIONAL REPOSITORY DESK<br />
+                SUBJECT: DANIEL MERCER / CORRUPTED LOGS<br />
+                I inspected the microfilm revision card for the Presidio dispatch. Look at the timestamp in the modification ledger. The alteration entry was logged at 14:15 hours—more than seven hours before Paul Stine's cab reached Washington and Cherry at 21:55 hours. Someone wrote the revision before the event took place."
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse border border-ink/40 text-[11px] font-mono">
+                <thead>
+                  <tr className="bg-ink/10 text-ink uppercase">
+                    <th className="border border-ink/30 p-2 text-left">Record ID</th>
+                    <th className="border border-ink/30 p-2 text-left">Logged Timestamp</th>
+                    <th className="border border-ink/30 p-2 text-left">Recorded Incident</th>
+                    <th className="border border-ink/30 p-2 text-left">Chronological Finding</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-ink/20">
+                  <tr>
+                    <td className="p-2 font-bold">ORIG-SFPD-69</td>
+                    <td className="p-2">11 OCT 1969 — 21:55</td>
+                    <td className="p-2">Presidio Heights Dispatch</td>
+                    <td className="p-2 text-ink/80">Real Incident Timestamp</td>
+                  </tr>
+                  <tr className="bg-crimson/10">
+                    <td className="p-2 font-bold text-crimson">MOD-LOG-71</td>
+                    <td className="p-2 font-bold text-crimson">11 OCT 1969 — 14:15</td>
+                    <td className="p-2 text-crimson">Archival Modification Entry</td>
+                    <td className="p-2 font-bold text-crimson">ALTERATION PREDATES EVENT BY 7H 40M</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-3 border-t border-ink/40 flex justify-between font-mono text-[10px] text-ink/60 uppercase">
+            <span>REPOSITORY AUDIT DIVISION</span>
+            <span>EVIDENCE REF: EV-0602</span>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: ARCHIVE_ACCESS.txt & Interactive Gate */}
+      {activeTab === 'archive_access' && (
+        <div className="bg-[#0e110e] border border-[#273a2b] p-6 text-[#d8ecd9] font-mono text-xs space-y-5">
+          <div className="flex items-center justify-between border-b border-[#213525] pb-3">
+            <span className="text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-2">
+              <Terminal size={15} />
+              ARCHIVE_ACCESS.txt — RECOVERED FILE
+            </span>
+            <span className="text-[10px] text-muted-foreground">PLAIN TEXT DOCKET</span>
+          </div>
+
+          {/* Clue Text Verbatim from PDF page 10 */}
+          <div className="p-4 bg-[#142016] border border-[#234329] text-[#bdebc4] space-y-1 font-mono text-xs leading-relaxed">
+            <p className="text-[11px] uppercase tracking-wider text-emerald-300 font-bold mb-2">
+              ARCHIVE FORMULA NOTE:
+            </p>
+            <p>"The initials were left behind.</p>
+            <p>The year was never erased.</p>
+            <p>Put them together exactly as they appear in the record.</p>
+            <p>No spaces."</p>
+          </div>
+
+          {/* Archive Unlock Form */}
+          <div className="p-5 bg-[#080b09] border border-[#1b3220] space-y-4">
+            <div>
+              <h4 className="font-bold text-sm text-[#e3f7e6] uppercase tracking-wider mb-1">
+                ARCHIVE FILE LOCKED
+              </h4>
+              <p className="text-[11px] text-[#8ebb95] leading-relaxed">
+                Enter the archive password to access the next document.
+                <br />
+                <span className="text-muted-foreground italic">
+                  Hint: The initials were left behind. The year was never erased.
+                </span>
+              </p>
+            </div>
+
+            {isStage6Cleared ? (
+              <div className="p-4 bg-[#0d2112] border border-[#285731] space-y-4">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase">
+                  <FileCheck size={16} />
+                  <span>STAGE 06 CLEARED // ARCHIVE PASSWORD VERIFIED</span>
+                </div>
+
+                {/* Final message from Unknown Sender verbatim from PDF page 10 */}
+                <div className="p-4 bg-[#050906] border border-[#1d4024] font-serif text-sm text-[#e2f1e4] leading-relaxed space-y-3 italic">
+                  <p className="font-mono text-[10px] text-crimson uppercase tracking-widest not-italic font-bold">
+                    UNKNOWN SENDER // INTERCEPTED DISPATCH
+                  </p>
+                  <p>"You found the copy."</p>
+                  <p>"Daniel found it too. The person before him found it."</p>
+                  <p>"Do you know what all three of you have in common?"</p>
+                  <p>"You believed you were investigating the records. You never asked who was keeping a record of you."</p>
+                  <p className="text-[#a4d8ae]">
+                    "One last thing: The file you opened first was not the file I wanted you to find. But now I know which one you chose."
+                  </p>
+                </div>
+
+                {/* Stage 7 Unlock Message verbatim from PDF page 10 */}
+                <div className="p-3 bg-emerald-950/40 border border-emerald-800 text-emerald-200 font-mono text-xs space-y-1">
+                  <div className="font-bold text-emerald-300">STAGE 6 COMPLETE</div>
+                  <p className="text-[11px]">
+                    One name remains: <strong>Ellen Vale</strong>. Open her journal. Examine the dates. The final review is waiting.
+                  </p>
+                </div>
+
+                {onAdvanceToStage7 && (
+                  <button
+                    onClick={onAdvanceToStage7}
+                    className="button bg-[#1b3b22] hover:bg-[#23502d] text-[#e3f7e6] border border-[#3e784c] px-4 py-2.5 text-xs font-mono font-bold w-full flex items-center justify-center gap-2"
+                  >
+                    <span>OPEN ELLEN VALE'S JOURNAL (EV-0701) →</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={handleVerifyPassword} className="space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Enter archive password..."
+                    className="flex-1 bg-[#020503] border border-[#214328] p-2.5 text-xs text-[#9ef5ae] font-mono tracking-widest focus:outline-none focus:border-emerald-400"
+                    disabled={isEvaluating}
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    disabled={isEvaluating || !passwordInput.trim()}
+                    className="button bg-[#1b3b22] hover:bg-[#23502d] text-[#e3f7e6] border border-[#3e784c] px-5 py-2.5 text-xs font-mono font-bold tracking-wider disabled:opacity-50"
+                  >
+                    {isEvaluating ? 'Decrypting...' : 'Verify Password'}
+                  </button>
+                </div>
+
+                {authError && (
+                  <div className="p-2.5 bg-red-950/80 border border-crimson text-red-200 text-[11px] font-mono">
+                    {authError}
+                  </div>
+                )}
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 9. EV-0701: RESEARCH JOURNAL OF ELLEN VALE — OCTOBER 1971 (STAGE 7)
 // ---------------------------------------------------------------------------
 export function EllenValeJournalDoc({ item }: { item: EvidenceItem }) {
   return (
-    <div className="paper-sheet p-8 md:p-12 relative text-ink font-serif text-sm leading-relaxed">
+    <div className="paper-sheet p-8 md:p-12 relative text-ink font-serif text-sm leading-relaxed space-y-6">
       <div className="flex items-start justify-between border-b-2 border-ink pb-4 font-mono">
         <div>
           <p className="text-[10px] uppercase tracking-[0.24em] text-ink/70 font-bold">
-            ARCHIVAL RECOVERY // BOUND NOTEBOOK REF: DOC-JRN-74-06
+            THE LAST SIGNAL // CLASSIFIED ARCHIVAL JOURNAL
           </p>
           <h2 className="font-serif text-2xl font-bold text-ink mt-0.5">
-            Research Journal of Ellen Vale — October 1974
+            Research Journal of Ellen Vale — October 1971
           </h2>
           <p className="text-[10px] text-ink/60 mt-0.5">
-            SOURCE: PRIVATE PAPERS DEPOSITED IN ARCHIVAL VAULT B
+            SOURCE: PRIVATE PAPERS DEPOSITED IN ARCHIVAL VAULT B // PASSWORD: EV1971
           </p>
         </div>
-        <span className="stamp text-crimson border-crimson text-xs font-mono">CONFIDENTIAL NOTES</span>
+        <span className="stamp text-crimson border-crimson text-xs font-mono">CONFIDENTIAL RESEARCH</span>
       </div>
 
-      {/* Journal Entry 1 */}
-      <div className="my-6 space-y-4 text-xs font-mono leading-relaxed">
-        <div className="flex justify-between items-center border-b border-ink/30 pb-1 text-[11px] text-ink/75 font-bold">
-          <span>ENTRY 14 — OCTOBER 14, 1974</span>
-          <span>LOCATION: ARCHIVAL DESK 4</span>
-        </div>
-        <p className="font-serif text-sm text-ink/90 leading-relaxed italic">
-          "The records have been altered. It took me three days to spot the discrepancy in the 1969 Presidio negative log. The coordinate telemetry numbers in the margin aren't an artifact of the Kodak optical stamp. Someone used an alphabet-to-number substitution: A=1, B=2, up to L=12. It points to a house on Washington Street."
+      {/* Verbatim Journal Text from PDF Page 11 */}
+      <div className="space-y-4 font-serif text-base text-ink/90 leading-relaxed italic">
+        <p>
+          "I’ve spent years studying the Zodiac Killer’s letters, ciphers, and reported crimes across Northern California."
+        </p>
+        <p>
+          "The Z408 cipher was solved in 1969, yet it revealed no identity. The Z340 cipher remained unsolved, and every new letter brought more questions than answers."
+        </p>
+        <p>
+          "I’ve separated verified evidence from public speculation, but the same question persists: who was the person behind the name?"
+        </p>
+        <p>
+          "The newspapers call this an investigation. I call it an unfinished puzzle."
+        </p>
+        <p>
+          "Perhaps the answer lies in a detail everyone overlooked."
+        </p>
+        <p>
+          "Until then, the files remain open."
         </p>
       </div>
 
-      {/* Journal Entry 2 */}
-      <div className="my-6 space-y-4 text-xs font-mono leading-relaxed">
-        <div className="flex justify-between items-center border-b border-ink/30 pb-1 text-[11px] text-ink/75 font-bold">
-          <span>ENTRY 21 — OCTOBER 22, 1974</span>
-          <span>LOCATION: TELETYPE TERMINAL CORRIDOR</span>
-        </div>
-        <p className="font-serif text-sm text-ink/90 leading-relaxed italic">
-          "Daniel Mercer warned me this morning. He found seven-character cipher codes penciled into the margins of the 408 worksheet. He thinks whoever placed them is monitoring our review sessions. If they know we are looking at the files, then every step we take has already been anticipated."
-        </p>
-      </div>
-
-      {/* Journal Entry 3 — Ominous Realization */}
-      <div className="my-6 p-4 bg-[#f4ece1] border-l-4 border-crimson text-xs font-mono leading-relaxed space-y-2">
-        <div className="flex justify-between items-center text-[11px] font-bold text-crimson">
-          <span>ENTRY 27 — OCTOBER 29, 1974 (FINAL WRITTEN PAGE)</span>
-          <span>UNFINISHED ENTRY</span>
-        </div>
-        <p className="font-serif text-sm text-ink/95 leading-relaxed italic font-semibold">
-          "I went to review the 16mm archival attachment reel. What I found wasn't police station footage. It was an inventory of expected investigator responses. They knew which files we would open first. They knew which ciphers we would solve.
-          <br /><br />
-          You have tried very hard to find the killer… But did you ever think about what would happen if he tried to find you?"
-        </p>
+      <div className="p-4 bg-[#ede5d8] border border-[#cfc4b2] font-mono text-xs text-ink/80 space-y-1">
+        <div><strong>Researcher:</strong> Ellen Vale</div>
+        <div><strong>Date of Record:</strong> October 1971</div>
+        <div><strong>Attachment found:</strong> FINAL_REVIEW.mp4</div>
       </div>
 
       <div className="mt-8 pt-3 border-t border-ink/40 flex justify-between font-mono text-[10px] text-ink/60 uppercase">
         <span>ARCHIVAL VAULT B // DEPOSIT BOX 17</span>
-        <span>ATTACHMENT ENCLOSED: FINAL_REVIEW.MP4</span>
+        <span>EVIDENCE REF: EV-0701</span>
       </div>
     </div>
   );
 }
+
